@@ -485,10 +485,11 @@ function updatePerGameBreakdown() {
             hasGames = true;
             const gameTax = price * taxRate;
             const gameTotal = price + gameTax;
+            const gameName = (input.dataset.gameName || '').trim() || `Game ${parseInt(input.dataset.index) + 1}`;
             
             html += `
                 <div class="breakdown-item">
-                    <div class="breakdown-game-name">Game ${parseInt(input.dataset.index) + 1}</div>
+                    <div class="breakdown-game-name">${escapeHtml(gameName)}</div>
                     <div class="breakdown-values-detailed">
                         <div class="breakdown-row">
                             <span class="breakdown-label">Price:</span>
