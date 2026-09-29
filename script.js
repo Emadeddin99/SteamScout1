@@ -1242,14 +1242,6 @@ async function lookupGamePrices(gameName, gameID) {
     `;
     
     try {
-        // Fetch game details from RAWG
-        const gameDetailsResponse = await fetch(
-            `/api/rawg?id=${encodeURIComponent(gameID)}`
-        );
-        
-        if (!gameDetailsResponse.ok) throw new Error('Failed to fetch game details');
-        const gameDetails = await gameDetailsResponse.json();
-        
         // Fetch prices from backend deals API (includes Steam from CheapShark)
         let pricesData = [];
         
@@ -1279,7 +1271,7 @@ async function lookupGamePrices(gameName, gameID) {
         }
         
         console.log(`[LOOKUP] Found ${pricesData.length} prices for display`);
-        displayGamePricesLookup(gameName, gameID, gameDetails, pricesData);
+        displayGamePricesLookup(gameName, pricesData);
         
     } catch (error) {
         console.error('Price lookup error:', error);
@@ -1348,7 +1340,7 @@ async function fetchGamePrice(gameName) {
             throw new Error('Game not found on Steam');
         }
         const allPrices = steamPrices.map(p => ({ ...p, storeName: 'Steam' }));
-        displayGamePricesLookup(gameName, null, null, allPrices);
+        displayGamePricesLookup(gameName, allPrices);
     } catch (error) {
         console.error('Price fetch error:', error);
         dealsList.innerHTML = `
@@ -1461,7 +1453,7 @@ function getSteamUrl(deal) {
     return "https://store.steampowered.com";
 }
 
-function displayGamePricesLookup(gameName, gameID, gameDetails, pricesData) {
+function displayGamePricesLookup(gameName, pricesData) {
     const resultsList = document.getElementById('gameLookupResult');
 
     // pricesData is expected to be an array of Steam price objects from /api/steam-search
