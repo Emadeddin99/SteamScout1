@@ -24,6 +24,7 @@ let dealsCache = {
 let gameSearchCache = [];
 let searchTimeout = null;
 let currentGameSuggestions = []; // Store current suggestions for Enter key display
+let activeGameSuggestionIndex = -1;
 
 // Pagination
 let currentPage = 1;
@@ -115,33 +116,6 @@ function setupEventListeners() {
             updateGameFields();
         }
     });
-    
-    // Setup tax preset buttons
-    document.querySelectorAll('.preset-btn').forEach(button => {
-        button.addEventListener('click', function() {
-            const taxRate = parseFloat(this.dataset.tax);
-            taxRateSlider.value = taxRate;
-            taxRateInput.value = taxRate;
-            
-            // Update active state
-            document.querySelectorAll('.preset-btn').forEach(btn => 
-                btn.classList.remove('active'));
-            this.classList.add('active');
-            
-            updateTaxDisplay();
-            triggerAutoCalculate();
-        });
-    });
-}
-
-function updateTaxDisplay() {
-    const taxRate = document.getElementById('taxRateSlider').value;
-    document.getElementById('taxRateDisplay').textContent = `${taxRate}%`;
-}
-
-function updateTotalGamesCount() {
-    const count = parseInt(document.getElementById('gameCount').value) || 1;
-    document.getElementById('totalGames').textContent = `Total: ${count} game${count !== 1 ? 's' : ''}`;
 }
 
 function triggerAutoCalculate() {
@@ -1073,15 +1047,65 @@ function initializeDealsFilters() {
         });
         
         gameSearchInput.addEventListener('keydown', function(e) {
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                if (!currentGameSuggestions.length) return;
+
+                e.preventDefault();
+                const direction = e.key === 'ArrowDown' ? 1 : -1;
+                const suggestionCount = currentGameSuggestions.length;
+                activeGameSuggestionIndex = activeGameSuggestionIndex < 0
+                    ? (direction > 0 ? 0 : suggestionCount - 1)
+                    : (activeGameSuggestionIndex + direction + suggestionCount) % suggestionCount;
+                updateActiveGameSuggestion();
+                return;
+            }
+
             if (e.key === 'Enter') {
                 e.preventDefault();
-                const firstMatch = currentGameSuggestions[0];
-                if (firstMatch) {
-                    lookupGamePrices(firstMatch.displayTitle || firstMatch.title, firstMatch.id);
-                }
+                selectGameSuggestion(activeGameSuggestionIndex < 0 ? 0 : activeGameSuggestionIndex);
+                return;
+            }
+
+            if (e.key === 'Escape') {
+                document.getElementById('searchSuggestions').innerHTML = '';
+                currentGameSuggestions = [];
+                activeGameSuggestionIndex = -1;
+                gameSearchInput.setAttribute('aria-expanded', 'false');
+                gameSearchInput.removeAttribute('aria-activedescendant');
             }
         });
     }
+}
+
+function updateActiveGameSuggestion() {
+    const items = document.querySelectorAll('#searchSuggestions [role="option"]');
+    const gameSearchInput = document.getElementById('gameSearchInput');
+
+    items.forEach((item, index) => {
+        const isActive = index === activeGameSuggestionIndex;
+        item.classList.toggle('active', isActive);
+        item.setAttribute('aria-selected', String(isActive));
+    });
+
+    const activeItem = items[activeGameSuggestionIndex];
+    if (activeItem) {
+        gameSearchInput.setAttribute('aria-activedescendant', activeItem.id);
+        activeItem.scrollIntoView({ block: 'nearest' });
+    } else {
+        gameSearchInput.removeAttribute('aria-activedescendant');
+    }
+}
+
+function setActiveGameSuggestion(index) {
+    activeGameSuggestionIndex = index;
+    updateActiveGameSuggestion();
+}
+
+function selectGameSuggestion(index) {
+    const game = currentGameSuggestions[index];
+    if (!game) return;
+
+    lookupGamePrices(game.displayTitle || game.title || game.name, game.id);
 }
 
 // Handle game search with autocomplete
@@ -1089,14 +1113,18 @@ function handleGameSearch(query) {
     clearTimeout(searchTimeout);
     const suggestionsDiv = document.getElementById('searchSuggestions');
     const resultsList = document.getElementById('gameLookupResult');
+    const gameSearchInput = document.getElementById('gameSearchInput');
     const isSearching = Boolean(query.trim());
 
     document.getElementById('deals').classList.toggle('searching', isSearching);
     resultsList.innerHTML = '';
+    suggestionsDiv.innerHTML = '';
+    currentGameSuggestions = [];
+    activeGameSuggestionIndex = -1;
+    gameSearchInput.setAttribute('aria-expanded', 'false');
+    gameSearchInput.removeAttribute('aria-activedescendant');
     
     if (!isSearching) {
-        suggestionsDiv.innerHTML = '';
-        currentGameSuggestions = [];
         return;
     }
     
@@ -1138,9 +1166,11 @@ async function fetchGameSuggestions(query) {
 // Display search suggestions
 function displaySearchSuggestions(games, query) {
     const suggestionsDiv = document.getElementById('searchSuggestions');
+    const gameSearchInput = document.getElementById('gameSearchInput');
     
-    // Store current suggestions for Enter key handling
     currentGameSuggestions = games || [];
+    activeGameSuggestionIndex = -1;
+    gameSearchInput.setAttribute('aria-expanded', 'true');
     
     if (!games || games.length === 0) {
         suggestionsDiv.innerHTML = `
@@ -1154,13 +1184,11 @@ function displaySearchSuggestions(games, query) {
     
     suggestionsDiv.innerHTML = games.map((game, index) => {
         const gameTitle = game.displayTitle || game.title || game.name;
-        const gameID = game.id || index;
-        const gameName = gameTitle.replace(/'/g, "\\'");
         const gameImage = game.image || '';
         const rating = game.rating ? `★${game.rating.toFixed(1)}` : '';
         
         return `
-            <div class="search-suggestion-item" onclick="lookupGamePrices('${gameName}', ${gameID})">
+            <div class="search-suggestion-item" id="game-suggestion-${index}" role="option" aria-selected="false" onmouseenter="setActiveGameSuggestion(${index})" onclick="selectGameSuggestion(${index})">
                 ${gameImage ? `<img src="${gameImage}" alt="${gameTitle}" class="search-suggestion-thumbnail">` : `<div class="search-suggestion-thumbnail" style="background: var(--bg-primary);"><i class="fas fa-image"></i></div>`}
                 <div class="search-suggestion-info">
                     <div class="search-suggestion-name">${gameTitle}</div>
@@ -1235,10 +1263,14 @@ async function lookupGamePrices(gameName, gameID) {
     const searchInput = document.getElementById('gameSearchInput');
     if (searchInput) {
         searchInput.value = gameName;
+        searchInput.setAttribute('aria-expanded', 'false');
+        searchInput.removeAttribute('aria-activedescendant');
     }
     
     // Hide suggestions
     document.getElementById('searchSuggestions').innerHTML = '';
+    currentGameSuggestions = [];
+    activeGameSuggestionIndex = -1;
     
     // Show loading - use searchResultsList if it exists
     const resultsList = document.getElementById('gameLookupResult');
@@ -1635,9 +1667,12 @@ function clearGameSearch() {
     const searchInput = document.getElementById('gameSearchInput');
     if (searchInput) {
         searchInput.value = '';
+        searchInput.setAttribute('aria-expanded', 'false');
+        searchInput.removeAttribute('aria-activedescendant');
     }
     document.getElementById('searchSuggestions').innerHTML = '';
     currentGameSuggestions = [];
+    activeGameSuggestionIndex = -1;
     document.getElementById('gameLookupResult').innerHTML = '';
     document.getElementById('deals').classList.remove('searching');
 }

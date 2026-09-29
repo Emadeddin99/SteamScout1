@@ -2166,6 +2166,11 @@ input:checked + .toggle-slider:before {
     background: var(--bg-hover);
 }
 
+.search-suggestion-item.active {
+    background: var(--bg-hover);
+    box-shadow: inset 3px 0 var(--accent);
+}
+
 .search-suggestion-thumbnail {
     width: 40px;
     height: 40px;
