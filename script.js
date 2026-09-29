@@ -1,8 +1,14 @@
 // script.js - Fixed version with all issues resolved
 // API Configuration is loaded from config.js
-// corsProxyFetch helper is also loaded from config.js
 
-let calculationHistory = JSON.parse(localStorage.getItem('steamCalculatorHistory')) || [];
+let calculationHistory = [];
+try {
+    const storedHistory = localStorage.getItem('steamCalculatorHistory');
+    calculationHistory = storedHistory ? JSON.parse(storedHistory) : [];
+    if (!Array.isArray(calculationHistory)) calculationHistory = [];
+} catch (error) {
+    console.warn('Unable to restore calculation history; starting empty.', error);
+}
 let currentCalculation = null;
 let autoCalculateTimeout = null;
 let darkMode = localStorage.getItem('darkMode') !== 'false';
@@ -13,10 +19,11 @@ let currentDeals = [];
 let dealsLoading = false;
 let dealsHasMore = false;
 let currentDealsSort = 'discount';
+let currentDealsSearch = '';
 const dealsPageCache = new Map();
 const dealsPageCacheTtl = 5 * 60 * 1000;
 let failedDealsRequest = null;
-const seenDealKeysBySort = new Map();
+const seenDealKeysByFilter = new Map();
 
 // Search cache
 let gameSearchCache = [];
@@ -31,19 +38,44 @@ const dealsPerPage = 20;
 
 // Initialize the calculator
 document.addEventListener('DOMContentLoaded', function() {
+    removeLegacyDealsSearchFilter();
+
+    // Apply dark mode if enabled
     document.body.classList.toggle('light-mode', !darkMode);
+    updateDarkModeButton();
     
     updateGameFields();
     loadHistory();
     setupEventListeners();
     initializeTaxPresets();
     calculateTotal();
+    initializeTotalAmountFit();
     initializeDealsFilters();
     loadDeals();
     
     // Update current tax display
     updateTaxDisplay();
     updateTotalGamesCount();
+});
+
+function removeLegacyDealsSearchFilter() {
+    const legacyInputs = document.querySelectorAll('#dealsSearchInput, input[placeholder="Filter deal titles..."]');
+    legacyInputs.forEach(input => {
+        const container = input.closest('.deals-filter');
+        if (container) {
+            container.remove();
+            return;
+        }
+        input.remove();
+    });
+}
+
+window.addEventListener('storage', function(event) {
+    if (event.key !== 'darkMode') return;
+
+    darkMode = event.newValue !== 'false';
+    document.body.classList.toggle('light-mode', !darkMode);
+    updateDarkModeButton();
 });
 
 function setupEventListeners() {
@@ -75,15 +107,23 @@ function setupEventListeners() {
     // Input field change handler
     taxRateInput.addEventListener('input', function() {
         let value = parseFloat(this.value) || 0;
-        // Enforce limits: minimum 0, maximum 20
+        // Enforce limits: minimum 0, maximum 100
         if (value < 0) value = 0;
-        if (value > 20) value = 20;
-        this.value = value;
+        if (value > 100) value = 100;
         // Update slider to match input
         taxRateSlider.value = value;
         // Remove active class from all preset buttons when input is changed
         document.querySelectorAll('.preset-btn').forEach(btn => 
             btn.classList.remove('active'));
+        updateTaxDisplay();
+        triggerAutoCalculate();
+    });
+
+    taxRateInput.addEventListener('change', function() {
+        let value = parseFloat(this.value) || 0;
+        value = Math.max(0, Math.min(100, value));
+        this.value = value;
+        taxRateSlider.value = value;
         updateTaxDisplay();
         triggerAutoCalculate();
     });
@@ -134,11 +174,17 @@ function triggerAutoCalculate() {
 }
 
 function initializeTaxPresets() {
-    // Set default active preset
-    const defaultPreset = document.querySelector('.tax-preset[data-tax="8"]');
-    if (defaultPreset) {
-        defaultPreset.classList.add('active');
-    }
+    document.querySelectorAll('.preset-btn').forEach(button => {
+        button.addEventListener('click', () => {
+            const tax = Number(button.dataset.tax);
+            document.getElementById('taxRateInput').value = tax;
+            document.getElementById('taxRateSlider').value = tax;
+            document.querySelectorAll('.preset-btn').forEach(preset => preset.classList.remove('active'));
+            button.classList.add('active');
+            updateTaxDisplay();
+            triggerAutoCalculate();
+        });
+    });
 }
 
 function changeGameCount(delta) {
@@ -156,15 +202,27 @@ function changeGameCount(delta) {
     updateGameFields();
 }
 
+function setCalculatorGameName(input, gameName) {
+    const name = typeof gameName === 'string' ? gameName.trim() : '';
+    const fallbackName = `Game ${Number(input.dataset.index) + 1}`;
+    input.dataset.gameName = name;
+
+    const label = input.closest('.game-input-card')?.querySelector('label');
+    if (label) {
+        label.textContent = name || fallbackName;
+        label.title = name;
+    }
+}
+
 function updateGameFields() {
     const count = parseInt(document.getElementById("gameCount").value) || 1;
     const container = document.getElementById("gameInputs");
     
     // Get current values before clearing
-    const currentValues = [];
+    const currentGames = [];
     const currentInputs = container.querySelectorAll('input');
     currentInputs.forEach(input => {
-        currentValues.push(input.value);
+        currentGames.push({ value: input.value, name: input.dataset.gameName || '' });
     });
     
     container.innerHTML = "";
@@ -175,17 +233,19 @@ function updateGameFields() {
         card.dataset.index = i;
         
         const label = document.createElement("label");
-        label.textContent = `Game ${i + 1}`;
+        label.textContent = currentGames[i]?.name || `Game ${i + 1}`;
+        label.title = currentGames[i]?.name || '';
         label.htmlFor = `gamePrice${i}`;
         
         const input = document.createElement("input");
         input.type = "text";
         input.inputMode = "decimal";
         input.pattern = "[0-9]*\\.?[0-9]*";
-        input.value = i < currentValues.length ? currentValues[i] : "";
+        input.value = currentGames[i]?.value || "";
         input.id = `gamePrice${i}`;
         input.placeholder = `Enter price`;
         input.dataset.index = i;
+        input.dataset.gameName = currentGames[i]?.name || '';
         
         // Enhanced input handling
         input.addEventListener('input', function(e) {
@@ -243,13 +303,24 @@ function updateGameFields() {
             const removeBtn = document.createElement("button");
             removeBtn.className = "game-remove-btn";
             removeBtn.innerHTML = '<i class="fas fa-trash"></i> Remove';
-            removeBtn.onclick = function() {
-                const currentCount = parseInt(document.getElementById("gameCount").value);
-                if (currentCount > 1) {
-                    document.getElementById("gameCount").value = currentCount - 1;
+                removeBtn.addEventListener('click', () => {
+                    const cardIndex = Number(card.dataset.index);
+                    const games = Array.from(container.querySelectorAll('input')).map(input => ({
+                        value: input.value,
+                        name: input.dataset.gameName || ''
+                    }));
+                    games.splice(cardIndex, 1);
+                    document.getElementById('gameCount').value = Math.max(1, games.length);
                     updateGameFields();
-                }
-            };
+                    Array.from(container.querySelectorAll('input')).forEach((gameInput, index) => {
+                        gameInput.value = games[index]?.value || '';
+                        setCalculatorGameName(gameInput, games[index]?.name);
+                    });
+                    updatePricedGamesCount();
+                    toggleSaveButton();
+                    calculateTotal();
+                    updatePerGameBreakdown();
+                });
             card.appendChild(removeBtn);
         }
         
@@ -308,7 +379,7 @@ function calculateTotal() {
             gamePrices.push({
                 index: parseInt(input.dataset.index),
                 price: price.toFixed(2),
-                name: `Game ${parseInt(input.dataset.index) + 1}`
+                name: input.dataset.gameName || `Game ${parseInt(input.dataset.index) + 1}`
             });
         }
     });
@@ -349,10 +420,57 @@ function updateResultValue(elementId, newValue) {
     if (element.textContent !== formattedValue) {
         element.classList.add('value-updating');
         element.textContent = formattedValue;
+        element.title = formattedValue;
+        fitResultAmounts();
         
         setTimeout(() => {
             element.classList.remove('value-updating');
         }, 300);
+    }
+}
+
+function fitResultAmounts() {
+    document.querySelectorAll('.results-card .result-value').forEach(amount => {
+        if (amount.clientWidth === 0) return;
+
+        amount.style.fontSize = '';
+        const maxFontSize = parseFloat(getComputedStyle(amount).fontSize);
+        let minFitFontSize = 6;
+        let maxFitFontSize = maxFontSize;
+
+        amount.style.fontSize = `${maxFontSize}px`;
+        if (amount.scrollWidth <= amount.clientWidth) return;
+
+        for (let attempt = 0; attempt < 12; attempt++) {
+            const fontSize = (minFitFontSize + maxFitFontSize) / 2;
+            amount.style.fontSize = `${fontSize}px`;
+
+            if (amount.scrollWidth <= amount.clientWidth) {
+                minFitFontSize = fontSize;
+            } else {
+                maxFitFontSize = fontSize;
+            }
+        }
+
+        amount.style.fontSize = `${minFitFontSize}px`;
+    });
+}
+
+function initializeTotalAmountFit() {
+    fitResultAmounts();
+    window.addEventListener('resize', fitResultAmounts);
+
+    const resultsCard = document.querySelector('.results-card');
+    if (resultsCard && 'ResizeObserver' in window) {
+        let previousWidth = 0;
+        const observer = new ResizeObserver(([entry]) => {
+            const width = entry.contentRect.width;
+            if (width !== previousWidth) {
+                previousWidth = width;
+                fitResultAmounts();
+            }
+        });
+        observer.observe(resultsCard);
     }
 }
 
@@ -445,10 +563,10 @@ function saveToHistory() {
         expiry: Date.now() + (7 * 24 * 60 * 60 * 1000) // 7 days from now
     };
     
-    // Persist restore data across reloads and tabs.
-    const calculationCache = JSON.parse(localStorage.getItem('calculationCache') || '{}');
+    // Save to sessionStorage (browser cache)
+    const calculationCache = JSON.parse(sessionStorage.getItem('calculationCache') || '{}');
     calculationCache[uniqueId] = cacheData;
-    localStorage.setItem('calculationCache', JSON.stringify(calculationCache));
+    sessionStorage.setItem('calculationCache', JSON.stringify(calculationCache));
     
     // Clean up expired cache entries
     cleanupExpiredCache();
@@ -468,7 +586,7 @@ function saveToHistory() {
 
 // Clean up expired cache entries (older than 7 days)
 function cleanupExpiredCache() {
-    const calculationCache = JSON.parse(localStorage.getItem('calculationCache') || '{}');
+    const calculationCache = JSON.parse(sessionStorage.getItem('calculationCache') || '{}');
     const now = Date.now();
     let cleaned = false;
     
@@ -480,7 +598,7 @@ function cleanupExpiredCache() {
     }
     
     if (cleaned) {
-        localStorage.setItem('calculationCache', JSON.stringify(calculationCache));
+        sessionStorage.setItem('calculationCache', JSON.stringify(calculationCache));
     }
 }
 
@@ -560,7 +678,7 @@ function restoreFromHistory(itemId) {
     }
     
     // Try to get cached price data first
-    const calculationCache = JSON.parse(localStorage.getItem('calculationCache') || '{}');
+    const calculationCache = JSON.parse(sessionStorage.getItem('calculationCache') || '{}');
     const cachedData = calculationCache[itemId];
     
     // Check if cache is still valid (not expired)
@@ -575,6 +693,7 @@ function restoreFromHistory(itemId) {
                 const input = document.getElementById(`gamePrice${game.index}`);
                 if (input) {
                     input.value = game.price || '';
+                    setCalculatorGameName(input, game.name);
                 }
             });
         }
@@ -585,7 +704,7 @@ function restoreFromHistory(itemId) {
         document.getElementById('taxRateInput').value = restoredTax;
         // Update preset active state
         document.querySelectorAll('.preset-btn').forEach(btn => btn.classList.remove('active'));
-        const activeBtn = document.querySelector(`.tax-preset[data-tax="${restoredTax}"]`);
+        const activeBtn = document.querySelector(`.preset-btn[data-tax="${restoredTax}"]`);
         if (activeBtn) activeBtn.classList.add('active');
         updateTaxDisplay();
     } else {
@@ -598,6 +717,7 @@ function restoreFromHistory(itemId) {
                 const input = document.getElementById(`gamePrice${game.index}`);
                 if (input) {
                     input.value = game.price || '';
+                    setCalculatorGameName(input, game.name);
                 }
             });
         }
@@ -606,7 +726,7 @@ function restoreFromHistory(itemId) {
         document.getElementById('taxRateSlider').value = restoredTax;
         document.getElementById('taxRateInput').value = restoredTax;
         document.querySelectorAll('.preset-btn').forEach(btn => btn.classList.remove('active'));
-        const activeBtn = document.querySelector(`.tax-preset[data-tax="${restoredTax}"]`);
+        const activeBtn = document.querySelector(`.preset-btn[data-tax="${restoredTax}"]`);
         if (activeBtn) activeBtn.classList.add('active');
         updateTaxDisplay();
         
@@ -623,11 +743,6 @@ function restoreFromHistory(itemId) {
     
     showNotification('Calculation restored', 'success');
 }
-    
-    // Recalculate
-    calculateTotal();
-    
-    showNotification('Calculation restored', 'success');
 
 
 function clearHistory() {
@@ -649,9 +764,9 @@ function deleteHistoryItem(itemId) {
     localStorage.setItem('steamCalculatorHistory', JSON.stringify(calculationHistory));
     
     // Also delete from cache
-    const calculationCache = JSON.parse(localStorage.getItem('calculationCache') || '{}');
+    const calculationCache = JSON.parse(sessionStorage.getItem('calculationCache') || '{}');
     delete calculationCache[itemId];
-    localStorage.setItem('calculationCache', JSON.stringify(calculationCache));
+    sessionStorage.setItem('calculationCache', JSON.stringify(calculationCache));
     
     loadHistory();
     showNotification("Calculation deleted", "info");
@@ -677,9 +792,9 @@ function resetCalculator() {
         document.getElementById("gameCount").value = "1";
         
         // Update tax preset
-        document.querySelectorAll('.tax-preset').forEach(btn => 
+        document.querySelectorAll('.preset-btn').forEach(btn =>
             btn.classList.remove('active'));
-        document.querySelector('.tax-preset[data-tax="8"]').classList.add('active');
+        document.querySelector('.preset-btn[data-tax="8"]')?.classList.add('active');
         
         // Animate game count
         const gameCountInput = document.getElementById('gameCount');
@@ -964,6 +1079,8 @@ function showNotification(message, type = "info") {
     // Create notification element
     const notification = document.createElement('div');
     notification.className = `notification notification-${type}`;
+    notification.setAttribute('role', 'status');
+    notification.setAttribute('aria-live', 'polite');
     notification.innerHTML = `
         <i class="fas fa-${type === 'success' ? 'check-circle' : type === 'warning' ? 'exclamation-triangle' : type === 'danger' ? 'times-circle' : 'info-circle'}"></i>
         <span>${message}</span>
@@ -994,6 +1111,16 @@ function showNotification(message, type = "info") {
         notification.style.animation = 'slideOut 0.3s ease';
         setTimeout(() => notification.remove(), 300);
     }, 3000);
+}
+
+function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>'"]/g, character => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        "'": '&#39;',
+        '"': '&quot;'
+    }[character]));
 }
 
 // Add animation styles
@@ -1035,7 +1162,7 @@ function initializeDealsFilters() {
             sortDeals(this.value);
         });
     }
-    
+
     // Setup game search
     const gameSearchInput = document.getElementById('gameSearchInput');
     if (gameSearchInput) {
@@ -1059,7 +1186,15 @@ function initializeDealsFilters() {
 
             if (e.key === 'Enter') {
                 e.preventDefault();
-                selectGameSuggestion(activeGameSuggestionIndex < 0 ? 0 : activeGameSuggestionIndex);
+                if (currentGameSuggestions.length) {
+                    selectGameSuggestion(activeGameSuggestionIndex < 0 ? 0 : activeGameSuggestionIndex);
+                } else {
+                    const query = gameSearchInput.value.trim();
+                    if (!query) return;
+
+                    clearTimeout(searchTimeout);
+                    lookupGamePrices(query);
+                }
                 return;
             }
 
@@ -1173,7 +1308,7 @@ function displaySearchSuggestions(games, query) {
         suggestionsDiv.innerHTML = `
             <div class="search-suggestion-item" style="text-align: center; color: var(--text-tertiary);">
                 <i class="fas fa-search"></i>
-                <p>No games found for "${query}"</p>
+                <p>No games found for "${escapeHtml(query)}"</p>
             </div>
         `;
         return;
@@ -1185,15 +1320,21 @@ function displaySearchSuggestions(games, query) {
         const rating = game.rating ? `★${game.rating.toFixed(1)}` : '';
         
         return `
-            <div class="search-suggestion-item" id="game-suggestion-${index}" role="option" aria-selected="false" onmouseenter="setActiveGameSuggestion(${index})" onclick="selectGameSuggestion(${index})">
-                ${gameImage ? `<img src="${gameImage}" alt="${gameTitle}" class="search-suggestion-thumbnail">` : `<div class="search-suggestion-thumbnail" style="background: var(--bg-primary);"><i class="fas fa-image"></i></div>`}
+            <div class="search-suggestion-item" id="game-suggestion-${index}" role="option" aria-selected="false" data-suggestion-index="${index}">
+                ${gameImage ? `<img src="${escapeHtml(gameImage)}" alt="${escapeHtml(gameTitle)}" class="search-suggestion-thumbnail">` : `<div class="search-suggestion-thumbnail" style="background: var(--bg-primary);"><i class="fas fa-image"></i></div>`}
                 <div class="search-suggestion-info">
-                    <div class="search-suggestion-name">${gameTitle}</div>
+                    <div class="search-suggestion-name">${escapeHtml(gameTitle)}</div>
                     ${rating ? `<div class="search-suggestion-meta">${rating}</div>` : `<div class="search-suggestion-meta">Click to view prices</div>`}
                 </div>
             </div>
         `;
     }).join('');
+
+    suggestionsDiv.querySelectorAll('[data-suggestion-index]').forEach(item => {
+        const index = Number(item.dataset.suggestionIndex);
+        item.addEventListener('mouseenter', () => setActiveGameSuggestion(index));
+        item.addEventListener('click', () => selectGameSuggestion(index));
+    });
 }
 
 // Display all suggestions as cards when pressing Enter
@@ -1218,23 +1359,22 @@ function displayAllSuggestionsAsCards(games) {
     let htmlContent = games.map((game) => {
         const gameTitle = game.displayTitle || game.title || game.name;
         const gameImage = game.image || '';
-        const rating = game.rating ? `★${game.rating.toFixed(1)}` : 'No rating';
-        const gameName = gameTitle.replace(/'/g, "\\'");
+        const rating = game.rating ? `★${game.rating.toFixed(1)}` : '';
         const gameID = game.id || 0;
         
         return `
             <div class="deal-card">
                 <div class="deal-header">
-                    <h3 class="deal-title">${gameTitle}</h3>
+                    <h3 class="deal-title">${escapeHtml(gameTitle)}</h3>
                 </div>
                 
-                ${gameImage ? `<div class="deal-game-image" style="background-image: url('${gameImage}'); background-size: cover; background-position: center; height: 150px; width: 100%;"></div>` : ''}
+                ${gameImage ? `<div class="deal-game-image" style="background-image: url('${escapeHtml(gameImage)}'); background-size: cover; background-position: center; height: 150px; width: 100%;"></div>` : ''}
                 
                 <div class="deal-body">
-                    <div class="deal-info-row">
+                    ${rating ? `<div class="deal-info-row">
                         <span class="info-label"><i class="fas fa-star"></i> Rating</span>
                         <span class="info-value">${rating}</span>
-                    </div>
+                    </div>` : ''}
                     <div class="deal-info-row">
                         <span class="info-label"><i class="fas fa-info-circle"></i> Source</span>
                         <span class="info-value">RAWG Database</span>
@@ -1242,7 +1382,7 @@ function displayAllSuggestionsAsCards(games) {
                 </div>
                 
                 <div class="deal-footer">
-                    <button class="deal-link" onclick="lookupGamePrices('${gameName}', ${gameID})">
+                    <button class="deal-link" data-lookup-title="${escapeHtml(gameTitle)}" data-lookup-id="${gameID}">
                         <i class="fas fa-search"></i> View Prices
                     </button>
                 </div>
@@ -1251,6 +1391,9 @@ function displayAllSuggestionsAsCards(games) {
     }).join('');
     
     dealsList.innerHTML = htmlContent;
+    dealsList.querySelectorAll('[data-lookup-title]').forEach(button => {
+        button.addEventListener('click', () => lookupGamePrices(button.dataset.lookupTitle, Number(button.dataset.lookupId)));
+    });
 }
 
 // Lookup game prices (when clicking suggestion)
@@ -1281,45 +1424,39 @@ async function lookupGamePrices(gameName, gameID) {
     try {
         // Fetch prices from backend deals API (includes Steam from CheapShark)
         let pricesData = [];
+        let titleMismatch = false;
+        let searchData = {};
         
         try {
             // Call Steam search endpoint via backend (server can fetch Steam directly)
             const searchResponse = await fetch(`/api/steam-search?gameName=${encodeURIComponent(gameName)}`);
-            const searchData = await searchResponse.json();
-            
-            console.log(`[GAME LOOKUP] Status: ${searchResponse.status}`);
-            console.log(`[GAME LOOKUP] Response:`, searchData);
+            searchData = await searchResponse.json();
             
             if (searchResponse.ok) {
                 if (searchData.titleMismatch) {
-                    console.warn(`[GAME LOOKUP] Title mismatch - returned "${searchData.title}" for search "${gameName}"`);
-                    console.warn(`[GAME LOOKUP] Consider using fallback: ${searchData.searchFallbackUrl}`);
+                    titleMismatch = true;
                 }
                 
-                if (searchData.prices && searchData.prices.length > 0) {
+                if (!titleMismatch && searchData.prices && searchData.prices.length > 0) {
                     pricesData = searchData.prices;
-                    console.log(`[GAME LOOKUP] Found prices for ${searchData.title}`);
                 }
-            } else {
-                console.warn(`[GAME LOOKUP] Backend error: ${searchData.error}`);
             }
         } catch (e) {
             console.warn('Could not fetch game prices:', e);
         }
         
-        console.log(`[LOOKUP] Found ${pricesData.length} prices for display`);
-        displayGamePricesLookup(gameName, pricesData);
+        displayGamePricesLookup(gameName, pricesData, titleMismatch, searchData);
         
     } catch (error) {
         console.error('Price lookup error:', error);
         resultsList.innerHTML = `
             <div class="empty-history">
                 <i class="fas fa-exclamation-triangle"></i>
-                <p>Couldn't fetch details for "${gameName}"</p>
+                <p>Couldn't fetch details for "${escapeHtml(gameName)}"</p>
                 <p class="subtext">You can add this game and enter the price manually</p>
-                <button class="deals-btn" onclick="addGameManual('${gameName}')" style="margin-top: 15px;">
+                <button class="deals-btn" data-add-game="${escapeHtml(gameName)}" style="margin-top: 15px;">
                     <i class="fas fa-plus-circle"></i>
-                    Add "${gameName}" to Calculator
+                    Add "${escapeHtml(gameName)}" to Calculator
                 </button>
                 <button class="deals-btn" onclick="clearGameSearch()" style="margin-top: 10px;">
                     <i class="fas fa-redo"></i>
@@ -1327,6 +1464,12 @@ async function lookupGamePrices(gameName, gameID) {
                 </button>
             </div>
         `;
+        resultsList.querySelector('[data-add-game]')?.addEventListener('click', event => addGameManual(event.currentTarget.dataset.addGame));
+    } finally {
+        resultsList.scrollIntoView({
+            behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+            block: 'center'
+        });
     }
 }
 
@@ -1490,15 +1633,32 @@ function getSteamUrl(deal) {
     return "https://store.steampowered.com";
 }
 
-function displayGamePricesLookup(gameName, pricesData) {
+function displayGamePricesLookup(gameName, pricesData, titleMismatch = false, searchData = {}) {
     const resultsList = document.getElementById('gameLookupResult');
+
+    if (titleMismatch) {
+        resultsList.innerHTML = `
+            <div class="deal-card">
+                <div class="deal-header"><h3 class="deal-title">${escapeHtml(gameName)}</h3></div>
+                <div class="deal-body" style="text-align: center; padding: var(--spacing-lg);">
+                    <p style="margin: 0; color: var(--warning);"><i class="fas fa-exclamation-triangle"></i> No exact Steam match was found.</p>
+                    <p class="subtext">Steam returned a different title, so its price was not shown.</p>
+                </div>
+                <div class="deal-footer">
+                    <a class="deal-link" href="${escapeHtml(searchData.searchFallbackUrl || `https://store.steampowered.com/search/?term=${encodeURIComponent(gameName)}`)}" target="_blank" rel="noopener">
+                        <i class="fas fa-search"></i> Search Steam
+                    </a>
+                </div>
+            </div>`;
+        return;
+    }
 
     // pricesData is expected to be an array of Steam price objects from /api/steam-search
     if (!pricesData || pricesData.length === 0) {
         resultsList.innerHTML = `
             <div class="deal-card">
                 <div class="deal-header">
-                    <h3 class="deal-title">${gameName}</h3>
+                    <h3 class="deal-title">${escapeHtml(gameName)}</h3>
                 </div>
                 <div class="deal-body" style="text-align: center; padding: var(--spacing-lg);">
                     <p style="margin: 0; color: var(--text-tertiary);">
@@ -1506,12 +1666,13 @@ function displayGamePricesLookup(gameName, pricesData) {
                     </p>
                 </div>
                 <div class="deal-footer">
-                    <button class="deal-link" onclick="addGameManual('${gameName}')">
+                    <button class="deal-link" data-add-game="${escapeHtml(gameName)}">
                         <i class="fas fa-plus"></i> Add to Calculator
                     </button>
                 </div>
             </div>
         `;
+        resultsList.querySelector('[data-add-game]')?.addEventListener('click', event => addGameManual(event.currentTarget.dataset.addGame));
         return;
     }
 
@@ -1525,7 +1686,7 @@ function displayGamePricesLookup(gameName, pricesData) {
         resultsList.innerHTML = `
             <div class="deal-card">
                 <div class="deal-header">
-                    <h3 class="deal-title">${gameName}</h3>
+                    <h3 class="deal-title">${escapeHtml(gameName)}</h3>
                 </div>
                 <div class="deal-body" style="text-align: center; padding: var(--spacing-lg);">
                     <p style="margin: 0; color: var(--text-tertiary);">
@@ -1533,12 +1694,13 @@ function displayGamePricesLookup(gameName, pricesData) {
                     </p>
                 </div>
                 <div class="deal-footer">
-                    <button class="deal-link" onclick="addGameManual('${gameName}')">
+                    <button class="deal-link" data-add-game="${escapeHtml(gameName)}">
                         <i class="fas fa-plus"></i> Add to Calculator
                     </button>
                 </div>
             </div>
         `;
+        resultsList.querySelector('[data-add-game]')?.addEventListener('click', event => addGameManual(event.currentTarget.dataset.addGame));
         return;
     }
 
@@ -1547,7 +1709,7 @@ function displayGamePricesLookup(gameName, pricesData) {
     resultsList.innerHTML = `
         <div class="deal-card">
             <div class="deal-header">
-                <h3 class="deal-title">${gameName}</h3>
+                <h3 class="deal-title">${escapeHtml(gameName)}</h3>
                 <div class="deal-badges">
                     <span class="badge">${best.discount && best.discount > 0 ? '-' + best.discount + '%' : 'Full Price'}</span>
                 </div>
@@ -1566,15 +1728,18 @@ function displayGamePricesLookup(gameName, pricesData) {
                 </div>
             </div>
             <div class="deal-footer">
-                <button class="deal-link" onclick="addGameWithPrice('${gameName}', ${best.price})">
+                <button class="deal-link" data-add-game="${escapeHtml(gameName)}" data-add-price="${best.price}">
                     <i class="fas fa-plus"></i> Add to Calculator
                 </button>
-                <a href="${best.url}" target="_blank" class="deal-link" style="background: var(--success); margin-top: 8px; display: block; text-align: center;">
+                <a href="${escapeHtml(best.url)}" target="_blank" rel="noopener" class="deal-link" style="background: var(--success); margin-top: 8px; display: block; text-align: center;">
                     <i class="fas fa-external-link-alt"></i> Visit Steam
                 </a>
             </div>
         </div>
     `;
+    resultsList.querySelector('[data-add-game]')?.addEventListener('click', event => {
+        addGameWithPrice(event.currentTarget.dataset.addGame, Number(event.currentTarget.dataset.addPrice));
+    });
 }
 
 // Add game manually without a deal
@@ -1584,6 +1749,7 @@ function addGameManual(gameName) {
     
     for (const input of inputs) {
         if (!input.value || input.value === '0' || input.value === '0.00') {
+            setCalculatorGameName(input, gameName);
             input.focus();
             input.select();
             showNotification(`Added "${gameName}" - Enter price manually`, "info");
@@ -1602,6 +1768,7 @@ function addGameManual(gameName) {
             setTimeout(() => {
                 const newInput = document.querySelector(`#gameInputs input[data-index="${currentCount}"]`);
                 if (newInput) {
+                    setCalculatorGameName(newInput, gameName);
                     newInput.focus();
                     newInput.select();
                     showNotification(`Added "${gameName}" - Enter price manually`, "info");
@@ -1612,7 +1779,6 @@ function addGameManual(gameName) {
         }
     }
     
-    clearGameSearch();
 }
 
 // Add game with specific price
@@ -1623,6 +1789,7 @@ function addGameWithPrice(gameName, price) {
     
     for (const input of inputs) {
         if (!input.value || input.value === '0' || input.value === '0.00') {
+            setCalculatorGameName(input, gameName);
             input.value = price.toFixed(2);
             input.dispatchEvent(new Event('input', { bubbles: true }));
             input.style.borderColor = "var(--success)";
@@ -1644,6 +1811,7 @@ function addGameWithPrice(gameName, price) {
             setTimeout(() => {
                 const newInput = document.querySelector(`#gameInputs input[data-index="${currentCount}"]`);
                 if (newInput) {
+                    setCalculatorGameName(newInput, gameName);
                     newInput.value = price.toFixed(2);
                     newInput.dispatchEvent(new Event('input', { bubbles: true }));
                     newInput.style.borderColor = "var(--success)";
@@ -1656,7 +1824,6 @@ function addGameWithPrice(gameName, price) {
         }
     }
     
-    clearGameSearch();
 }
 
 // Clear game search
@@ -1675,17 +1842,19 @@ function clearGameSearch() {
 }
 
 // Load deals with real API
-async function loadDeals(page = 1, forceRefresh = false, requestedSort = null) {
+async function loadDeals(page = 1, forceRefresh = false, requestedSort = null, requestedSearch = null) {
     if (dealsLoading) return;
 
     const requestedPage = Math.max(1, Number.parseInt(page, 10) || 1);
     const sort = requestedSort || document.getElementById('dealsSort').value || currentDealsSort;
-    const cacheKey = `${sort}:${requestedPage}`;
+    const search = String(requestedSearch ?? '').trim().toLowerCase();
+    const cacheKey = `${sort}:${search}:${requestedPage}`;
     const cachedPage = dealsPageCache.get(cacheKey);
 
     if (!forceRefresh && cachedPage && Date.now() - cachedPage.timestamp < dealsPageCacheTtl) {
         currentPage = requestedPage;
         currentDealsSort = sort;
+        currentDealsSearch = search;
         currentDeals = cachedPage.deals;
         dealsHasMore = cachedPage.hasMore;
         failedDealsRequest = null;
@@ -1697,7 +1866,7 @@ async function loadDeals(page = 1, forceRefresh = false, requestedSort = null) {
 
     dealsLoading = true;
     updateDealsPaginationControls();
-    setDealsPageStatus(`Loading page ${requestedPage}...`);
+    setDealsPageStatus(search ? `Searching deals, page ${requestedPage}...` : `Loading page ${requestedPage}...`);
 
     const dealsList = document.getElementById('dealsList');
     if (currentDeals.length === 0) {
@@ -1705,7 +1874,7 @@ async function loadDeals(page = 1, forceRefresh = false, requestedSort = null) {
     }
 
     try {
-        const result = await fetchDealsWithCredentials(requestedPage, sort);
+        const result = await fetchDealsWithCredentials(requestedPage, sort, search);
 
         if (requestedPage > 1 && result.deals.length === 0) {
             dealsHasMore = false;
@@ -1716,10 +1885,12 @@ async function loadDeals(page = 1, forceRefresh = false, requestedSort = null) {
 
         currentPage = requestedPage;
         currentDealsSort = sort;
+        currentDealsSearch = search;
+        const filterKey = `${sort}:${search}`;
         if (requestedPage === 1) {
-            seenDealKeysBySort.set(sort, new Set());
+            seenDealKeysByFilter.set(filterKey, new Set());
         }
-        currentDeals = removePreviouslySeenDeals(result.deals, sort);
+        currentDeals = removePreviouslySeenDeals(result.deals, sort, search);
         dealsHasMore = result.hasMore;
         failedDealsRequest = null;
         cacheDealsPage(cacheKey, currentDeals, dealsHasMore);
@@ -1727,7 +1898,7 @@ async function loadDeals(page = 1, forceRefresh = false, requestedSort = null) {
         setDealsPageStatus('');
     } catch (error) {
         console.error('Error loading deals:', error);
-        failedDealsRequest = { page: requestedPage, sort };
+        failedDealsRequest = { page: requestedPage, sort, search };
         document.getElementById('dealsSort').value = currentDealsSort;
         setDealsPageStatus('Unable to load this page. Please try again.', true);
         if (currentDeals.length === 0) {
@@ -1740,12 +1911,13 @@ async function loadDeals(page = 1, forceRefresh = false, requestedSort = null) {
 }
 
 // Fetch real deals from Steam, Epic Games using serverless API (CORS-safe)
-async function fetchDealsWithCredentials(page, sort) {
+async function fetchDealsWithCredentials(page, sort, search) {
     const params = new URLSearchParams({
         page: String(page),
         limit: String(dealsPerPage),
         sort
     });
+    if (search) params.set('search', search);
     const response = await fetch(`/api/deals?${params}`);
     const apiResponse = await response.json();
 
@@ -1758,8 +1930,8 @@ async function fetchDealsWithCredentials(page, sort) {
         const normalPrice = Number(deal.normalPrice) || 0;
         return {
             title: deal.title,
-            price: salePrice > 100 ? salePrice / 100 : salePrice,
-            originalPrice: normalPrice > 100 ? normalPrice / 100 : normalPrice,
+            price: salePrice,
+            originalPrice: normalPrice,
             discountPercent: Number(deal.discount) || 0,
             discount: Number(deal.discount) || 0,
             expirationDate: deal.expiry,
@@ -1767,7 +1939,6 @@ async function fetchDealsWithCredentials(page, sort) {
             store: deal.store,
             source: deal.source,
             platform: 'steam',
-            rating: 4.5,
             storeID: '1',
             storeName: deal.store || 'Steam',
             steamAppID: deal.steamAppID,
@@ -1782,11 +1953,12 @@ async function fetchDealsWithCredentials(page, sort) {
     return { deals, hasMore: apiResponse.hasMore === true };
 }
 
-function removePreviouslySeenDeals(deals, sort) {
-    let seen = seenDealKeysBySort.get(sort);
+function removePreviouslySeenDeals(deals, sort, search) {
+    const filterKey = `${sort}:${search}`;
+    let seen = seenDealKeysByFilter.get(filterKey);
     if (!seen) {
         seen = new Set();
-        seenDealKeysBySort.set(sort, seen);
+        seenDealKeysByFilter.set(filterKey, seen);
     }
 
     return deals.filter(deal => {
@@ -1834,7 +2006,7 @@ function setDealsPageStatus(message, isError = false) {
 
 function retryDealsPage() {
     if (!failedDealsRequest || dealsLoading) return;
-    loadDeals(failedDealsRequest.page, true, failedDealsRequest.sort);
+    loadDeals(failedDealsRequest.page, true, failedDealsRequest.sort, failedDealsRequest.search);
 }
 
 function updateDealsPaginationControls() {
@@ -1853,7 +2025,7 @@ function updateDealsPaginationControls() {
 async function fetchSteamStoreDeals() {
     try {
         const steamFeaturedUrl = 'https://store.steampowered.com/api/featured/';
-        const response = await corsProxyFetch(steamFeaturedUrl);
+        const response = await fetch(steamFeaturedUrl);
         
         if (!response.ok) {
             console.warn('Steam API returned:', response.status);
@@ -1915,7 +2087,6 @@ async function fetchSteamStoreDeals() {
                 discount: discountPercent,
                 discountPercent: discountPercent,
                 platform: 'steam',
-                rating: 4.5,
                 metacriticScore: 80,
                 thumb: game.header_image || '',
                 storeUrl: getSteamUrl({ id: game.id, title: game.name }),
@@ -1998,7 +2169,7 @@ function displayDeals(deals) {
         return `
             <div class="deal-card">
                 <div class="deal-header">
-                    <h3 class="deal-title">${deal.title}</h3>
+                    <h3 class="deal-title">${escapeHtml(deal.title)}</h3>
                     <div class="deal-badges">
                         <span class="badge">-${deal.discountPercent}%</span>
                         ${deal.rating ? `<span class="badge">⭐ ${deal.rating}</span>` : ''}
@@ -2021,10 +2192,10 @@ function displayDeals(deals) {
                 </div>
                 
                 <div class="deal-footer">
-                    <button class="deal-link" onclick="quickAddToCalculator(${deal.price})" title="Add to calculator">
+                    <button class="deal-link" data-quick-add-title="${escapeHtml(deal.title)}" data-quick-add-price="${deal.price}" title="Add to calculator">
                         <i class="fas fa-plus"></i> Add to Calculator
                     </button>
-                    <a href="${deal.storeUrl}" target="_blank" class="deal-link" style="background: var(--success); margin-top: 8px; display: block; text-align: center;">
+                    <a href="${escapeHtml(deal.storeUrl)}" target="_blank" rel="noopener" class="deal-link" style="background: var(--success); margin-top: 8px; display: block; text-align: center;">
                         <i class="fas fa-external-link-alt"></i> View Deal
                     </a>
                 </div>
@@ -2033,6 +2204,11 @@ function displayDeals(deals) {
     }).join('');
 
     dealsList.innerHTML = dealsHTML;
+    dealsList.querySelectorAll('[data-quick-add-title]').forEach(button => {
+        button.addEventListener('click', () => {
+            quickAddToCalculator(Number(button.dataset.quickAddPrice), button.dataset.quickAddTitle);
+        });
+    });
 }
 
 function goToPage(direction) {
@@ -2096,11 +2272,12 @@ function refreshDeals() {
 }
 
 // Quick add deal price to calculator
-function quickAddToCalculator(price) {
+function quickAddToCalculator(price, gameName = '') {
     // Find first empty game input
     const inputs = document.querySelectorAll("#gameInputs input");
     for (const input of inputs) {
         if (!input.value || input.value === '0' || input.value === '0.00') {
+            setCalculatorGameName(input, gameName);
             input.value = price.toFixed(2);
             input.dispatchEvent(new Event('input', { bubbles: true }));
             input.style.borderColor = "var(--success)";
@@ -2130,6 +2307,7 @@ function quickAddToCalculator(price) {
         setTimeout(() => {
             const newInput = document.querySelector(`#gameInputs input[data-index="${currentCount}"]`);
             if (newInput) {
+                setCalculatorGameName(newInput, gameName);
                 newInput.value = price.toFixed(2);
                 newInput.dispatchEvent(new Event('input', { bubbles: true }));
                 newInput.style.borderColor = "var(--success)";
@@ -2167,32 +2345,3 @@ function openSteamGame(gameName) {
     }
 }
 
-function dedupeDeals(deals) {
-  const map = new Map();
-
-  for (const deal of deals) {
-    // Use title (normalized) as primary key, appid as secondary
-    const titleKey = deal.title ? deal.title.toLowerCase().trim() : '';
-    const key = deal.appid || titleKey;
-
-    if (!key) continue; // Skip deals without identifier
-
-    // Keep the BEST discount for each game
-    const existingDeal = map.get(key);
-    if (!existingDeal) {
-      map.set(key, deal);
-    } else {
-      const existingDiscount = existingDeal.discountPercent || existingDeal.discount || 0;
-      const newDiscount = deal.discountPercent || deal.discount || 0;
-      // Keep the deal with higher discount
-      if (newDiscount > existingDiscount) {
-        map.set(key, deal);
-      } else if (newDiscount === existingDiscount && deal.price < existingDeal.price) {
-        // If same discount, keep the cheaper one
-        map.set(key, deal);
-      }
-    }
-  }
-
-  return Array.from(map.values());
-}
