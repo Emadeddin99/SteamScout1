@@ -392,7 +392,7 @@ function updateResultValue(elementId, newValue) {
         element.classList.add('value-updating');
         element.textContent = formattedValue;
         element.title = formattedValue;
-        if (elementId === 'total') fitTotalAmount();
+        fitResultAmounts();
         
         setTimeout(() => {
             element.classList.remove('value-updating');
@@ -400,35 +400,36 @@ function updateResultValue(elementId, newValue) {
     }
 }
 
-function fitTotalAmount() {
-    const total = document.getElementById('total');
-    if (!total || total.clientWidth === 0) return;
+function fitResultAmounts() {
+    document.querySelectorAll('.results-card .result-value').forEach(amount => {
+        if (amount.clientWidth === 0) return;
 
-    total.style.fontSize = '';
-    const maxFontSize = parseFloat(getComputedStyle(total).fontSize);
-    let minFontSize = 12;
-    let maxFitFontSize = maxFontSize;
+        amount.style.fontSize = '';
+        const maxFontSize = parseFloat(getComputedStyle(amount).fontSize);
+        let minFitFontSize = 6;
+        let maxFitFontSize = maxFontSize;
 
-    total.style.fontSize = `${maxFontSize}px`;
-    if (total.scrollWidth <= total.clientWidth) return;
+        amount.style.fontSize = `${maxFontSize}px`;
+        if (amount.scrollWidth <= amount.clientWidth) return;
 
-    for (let attempt = 0; attempt < 10; attempt++) {
-        const fontSize = (minFontSize + maxFitFontSize) / 2;
-        total.style.fontSize = `${fontSize}px`;
+        for (let attempt = 0; attempt < 12; attempt++) {
+            const fontSize = (minFitFontSize + maxFitFontSize) / 2;
+            amount.style.fontSize = `${fontSize}px`;
 
-        if (total.scrollWidth <= total.clientWidth) {
-            minFontSize = fontSize;
-        } else {
-            maxFitFontSize = fontSize;
+            if (amount.scrollWidth <= amount.clientWidth) {
+                minFitFontSize = fontSize;
+            } else {
+                maxFitFontSize = fontSize;
+            }
         }
-    }
 
-    total.style.fontSize = `${minFontSize}px`;
+        amount.style.fontSize = `${minFitFontSize}px`;
+    });
 }
 
 function initializeTotalAmountFit() {
-    fitTotalAmount();
-    window.addEventListener('resize', fitTotalAmount);
+    fitResultAmounts();
+    window.addEventListener('resize', fitResultAmounts);
 
     const resultsCard = document.querySelector('.results-card');
     if (resultsCard && 'ResizeObserver' in window) {
@@ -437,7 +438,7 @@ function initializeTotalAmountFit() {
             const width = entry.contentRect.width;
             if (width !== previousWidth) {
                 previousWidth = width;
-                fitTotalAmount();
+                fitResultAmounts();
             }
         });
         observer.observe(resultsCard);
