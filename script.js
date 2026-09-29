@@ -1183,7 +1183,15 @@ function initializeDealsFilters() {
 
             if (e.key === 'Enter') {
                 e.preventDefault();
-                selectGameSuggestion(activeGameSuggestionIndex < 0 ? 0 : activeGameSuggestionIndex);
+                if (currentGameSuggestions.length) {
+                    selectGameSuggestion(activeGameSuggestionIndex < 0 ? 0 : activeGameSuggestionIndex);
+                } else {
+                    const query = gameSearchInput.value.trim();
+                    if (!query) return;
+
+                    clearTimeout(searchTimeout);
+                    lookupGamePrices(query);
+                }
                 return;
             }
 
@@ -1454,6 +1462,11 @@ async function lookupGamePrices(gameName, gameID) {
             </div>
         `;
         resultsList.querySelector('[data-add-game]')?.addEventListener('click', event => addGameManual(event.currentTarget.dataset.addGame));
+    } finally {
+        resultsList.scrollIntoView({
+            behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+            block: 'center'
+        });
     }
 }
 
