@@ -172,15 +172,27 @@ function changeGameCount(delta) {
     updateGameFields();
 }
 
+function setCalculatorGameName(input, gameName) {
+    const name = typeof gameName === 'string' ? gameName.trim() : '';
+    const fallbackName = `Game ${Number(input.dataset.index) + 1}`;
+    input.dataset.gameName = name;
+
+    const label = input.closest('.game-input-card')?.querySelector('label');
+    if (label) {
+        label.textContent = name || fallbackName;
+        label.title = name;
+    }
+}
+
 function updateGameFields() {
     const count = parseInt(document.getElementById("gameCount").value) || 1;
     const container = document.getElementById("gameInputs");
     
     // Get current values before clearing
-    const currentValues = [];
+    const currentGames = [];
     const currentInputs = container.querySelectorAll('input');
     currentInputs.forEach(input => {
-        currentValues.push(input.value);
+        currentGames.push({ value: input.value, name: input.dataset.gameName || '' });
     });
     
     container.innerHTML = "";
@@ -191,17 +203,19 @@ function updateGameFields() {
         card.dataset.index = i;
         
         const label = document.createElement("label");
-        label.textContent = `Game ${i + 1}`;
+        label.textContent = currentGames[i]?.name || `Game ${i + 1}`;
+        label.title = currentGames[i]?.name || '';
         label.htmlFor = `gamePrice${i}`;
         
         const input = document.createElement("input");
         input.type = "text";
         input.inputMode = "decimal";
         input.pattern = "[0-9]*\\.?[0-9]*";
-        input.value = i < currentValues.length ? currentValues[i] : "";
+        input.value = currentGames[i]?.value || "";
         input.id = `gamePrice${i}`;
         input.placeholder = `Enter price`;
         input.dataset.index = i;
+        input.dataset.gameName = currentGames[i]?.name || '';
         
         // Enhanced input handling
         input.addEventListener('input', function(e) {
@@ -261,12 +275,16 @@ function updateGameFields() {
             removeBtn.innerHTML = '<i class="fas fa-trash"></i> Remove';
                 removeBtn.addEventListener('click', () => {
                     const cardIndex = Number(card.dataset.index);
-                    const values = Array.from(container.querySelectorAll('input')).map(input => input.value);
-                    values.splice(cardIndex, 1);
-                    document.getElementById('gameCount').value = Math.max(1, values.length);
+                    const games = Array.from(container.querySelectorAll('input')).map(input => ({
+                        value: input.value,
+                        name: input.dataset.gameName || ''
+                    }));
+                    games.splice(cardIndex, 1);
+                    document.getElementById('gameCount').value = Math.max(1, games.length);
                     updateGameFields();
                     Array.from(container.querySelectorAll('input')).forEach((gameInput, index) => {
-                        gameInput.value = values[index] || '';
+                        gameInput.value = games[index]?.value || '';
+                        setCalculatorGameName(gameInput, games[index]?.name);
                     });
                     updatePricedGamesCount();
                     toggleSaveButton();
@@ -331,7 +349,7 @@ function calculateTotal() {
             gamePrices.push({
                 index: parseInt(input.dataset.index),
                 price: price.toFixed(2),
-                name: `Game ${parseInt(input.dataset.index) + 1}`
+                name: input.dataset.gameName || `Game ${parseInt(input.dataset.index) + 1}`
             });
         }
     });
@@ -598,6 +616,7 @@ function restoreFromHistory(itemId) {
                 const input = document.getElementById(`gamePrice${game.index}`);
                 if (input) {
                     input.value = game.price || '';
+                    setCalculatorGameName(input, game.name);
                 }
             });
         }
@@ -621,6 +640,7 @@ function restoreFromHistory(itemId) {
                 const input = document.getElementById(`gamePrice${game.index}`);
                 if (input) {
                     input.value = game.price || '';
+                    setCalculatorGameName(input, game.name);
                 }
             });
         }
@@ -1649,6 +1669,7 @@ function addGameManual(gameName) {
     
     for (const input of inputs) {
         if (!input.value || input.value === '0' || input.value === '0.00') {
+            setCalculatorGameName(input, gameName);
             input.focus();
             input.select();
             showNotification(`Added "${gameName}" - Enter price manually`, "info");
@@ -1667,6 +1688,7 @@ function addGameManual(gameName) {
             setTimeout(() => {
                 const newInput = document.querySelector(`#gameInputs input[data-index="${currentCount}"]`);
                 if (newInput) {
+                    setCalculatorGameName(newInput, gameName);
                     newInput.focus();
                     newInput.select();
                     showNotification(`Added "${gameName}" - Enter price manually`, "info");
@@ -1687,6 +1709,7 @@ function addGameWithPrice(gameName, price) {
     
     for (const input of inputs) {
         if (!input.value || input.value === '0' || input.value === '0.00') {
+            setCalculatorGameName(input, gameName);
             input.value = price.toFixed(2);
             input.dispatchEvent(new Event('input', { bubbles: true }));
             input.style.borderColor = "var(--success)";
@@ -1708,6 +1731,7 @@ function addGameWithPrice(gameName, price) {
             setTimeout(() => {
                 const newInput = document.querySelector(`#gameInputs input[data-index="${currentCount}"]`);
                 if (newInput) {
+                    setCalculatorGameName(newInput, gameName);
                     newInput.value = price.toFixed(2);
                     newInput.dispatchEvent(new Event('input', { bubbles: true }));
                     newInput.style.borderColor = "var(--success)";
@@ -2093,7 +2117,7 @@ function displayDeals(deals) {
                 </div>
                 
                 <div class="deal-footer">
-                    <button class="deal-link" onclick="quickAddToCalculator(${deal.price})" title="Add to calculator">
+                    <button class="deal-link" data-quick-add-title="${escapeHtml(deal.title)}" data-quick-add-price="${deal.price}" title="Add to calculator">
                         <i class="fas fa-plus"></i> Add to Calculator
                     </button>
                     <a href="${escapeHtml(deal.storeUrl)}" target="_blank" rel="noopener" class="deal-link" style="background: var(--success); margin-top: 8px; display: block; text-align: center;">
@@ -2105,6 +2129,11 @@ function displayDeals(deals) {
     }).join('');
 
     dealsList.innerHTML = dealsHTML;
+    dealsList.querySelectorAll('[data-quick-add-title]').forEach(button => {
+        button.addEventListener('click', () => {
+            quickAddToCalculator(Number(button.dataset.quickAddPrice), button.dataset.quickAddTitle);
+        });
+    });
 }
 
 function goToPage(direction) {
@@ -2168,11 +2197,12 @@ function refreshDeals() {
 }
 
 // Quick add deal price to calculator
-function quickAddToCalculator(price) {
+function quickAddToCalculator(price, gameName = '') {
     // Find first empty game input
     const inputs = document.querySelectorAll("#gameInputs input");
     for (const input of inputs) {
         if (!input.value || input.value === '0' || input.value === '0.00') {
+            setCalculatorGameName(input, gameName);
             input.value = price.toFixed(2);
             input.dispatchEvent(new Event('input', { bubbles: true }));
             input.style.borderColor = "var(--success)";
@@ -2202,6 +2232,7 @@ function quickAddToCalculator(price) {
         setTimeout(() => {
             const newInput = document.querySelector(`#gameInputs input[data-index="${currentCount}"]`);
             if (newInput) {
+                setCalculatorGameName(newInput, gameName);
                 newInput.value = price.toFixed(2);
                 newInput.dispatchEvent(new Event('input', { bubbles: true }));
                 newInput.style.borderColor = "var(--success)";

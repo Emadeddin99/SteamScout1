@@ -306,7 +306,7 @@ button:active { transform: translateY(1px); }
 .games-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr)); gap: var(--space-2); }
 .game-input-card { display: flex; flex-direction: column; gap: var(--space-1); padding: 10px; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--surface-2); animation: cardEnter .25s var(--ease) both; }
 .game-input-card:hover { border-color: var(--border-strong); box-shadow: var(--shadow-1); }
-.game-input-card label { color: var(--text-muted); font-size: .8rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.game-input-card label { min-width: 0; overflow: hidden; color: var(--text-muted); font-size: .8rem; font-weight: 700; letter-spacing: 0; text-overflow: ellipsis; white-space: nowrap; }
 .game-input-card input { width: 100%; min-height: 40px; padding: 8px 10px; color: var(--text-heading); font-size: 1rem; font-variant-numeric: tabular-nums; text-align: right; }
 .game-remove-btn { padding: 8px 12px; border: 1px solid var(--danger); border-radius: var(--radius-sm); background: var(--danger-soft); color: var(--danger); font-weight: 600; transition: background var(--transition), color var(--transition); }
 .game-remove-btn:hover { background: var(--danger); color: #fff; }
