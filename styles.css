@@ -303,7 +303,7 @@ button:active { transform: translateY(1px); }
 .games-header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding-bottom: var(--space-3); border-bottom: 1px solid var(--border-subtle); margin-bottom: var(--space-4); }
 .games-stats { display: flex; gap: var(--space-2); flex-wrap: wrap; justify-content: flex-end; font-size: .85rem; }
 .stat { padding: 5px 9px; border: 1px solid var(--border-subtle); border-radius: var(--radius-pill); background: var(--surface-2); color: var(--text-muted); }
-.games-grid { min-width: 0; max-height: min(640px, 72vh); padding: var(--space-2); overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--surface-3); display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr)); align-content: start; gap: var(--space-2); }
+.games-grid { min-width: 0; max-height: min(640px, 72vh); padding: var(--space-2); overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--surface-3); scrollbar-color: var(--border-strong) var(--surface-2); scrollbar-width: thin; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr)); align-content: start; gap: var(--space-2); }
 .game-input-card { display: flex; flex-direction: column; gap: var(--space-1); padding: 10px; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--surface-2); animation: cardEnter .25s var(--ease) both; }
 .game-input-card:hover { border-color: var(--border-strong); box-shadow: var(--shadow-1); }
 .game-input-card label { min-width: 0; overflow: hidden; color: var(--text-muted); font-size: .8rem; font-weight: 700; letter-spacing: 0; text-overflow: ellipsis; white-space: nowrap; }
@@ -324,7 +324,7 @@ button:active { transform: translateY(1px); }
 .save-calculation-btn { width: 100%; min-height: 46px; margin-top: var(--space-3); padding: 10px var(--space-3); border: 1px solid var(--success); border-radius: var(--radius-md); background: var(--success); color: #05261d; font-weight: 700; transition: all var(--transition); }
 .save-calculation-btn:hover:not(:disabled) { background: #6ee7b7; transform: translateY(-1px); box-shadow: var(--shadow-2); }
 .save-calculation-btn:disabled { cursor: not-allowed; opacity: .45; }
-.per-game-breakdown { max-height: 500px; overflow-y: auto; }
+.per-game-breakdown { max-height: 500px; overflow-y: auto; scrollbar-color: var(--border-strong) var(--surface-2); scrollbar-width: thin; }
 .per-game-breakdown h4 { margin-bottom: var(--space-3); }
 .breakdown-list { display: flex; flex-direction: column; gap: var(--space-2); }
 .breakdown-item { padding: var(--space-3); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); background: var(--surface-1); }
@@ -358,7 +358,14 @@ button:active { transform: translateY(1px); }
 #dealsSort:hover, #dealsSort:focus { border-color: var(--border-accent); outline: none; }
 .refresh-btn { min-width: 44px; padding: 8px 12px; border-color: var(--border-strong); background: var(--surface-2); color: var(--text-body); }
 .refresh-btn:hover { border-color: var(--border-strong); background: var(--surface-3); color: var(--text-heading); transform: translateY(-1px); box-shadow: var(--shadow-1); }
-.deals-grid { min-width: 0; max-height: min(720px, 70vh); padding: 4px; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; display: grid; grid-template-columns: 1fr; align-content: start; gap: var(--space-4); }
+.deals-grid { min-width: 0; max-height: min(720px, 70vh); padding: 4px; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-color: var(--border-strong) var(--surface-2); scrollbar-width: thin; display: grid; grid-template-columns: 1fr; align-content: start; gap: var(--space-4); }
+.games-grid::-webkit-scrollbar, .deals-grid::-webkit-scrollbar, .per-game-breakdown::-webkit-scrollbar { width: 12px; height: 12px; }
+.games-grid::-webkit-scrollbar-track, .deals-grid::-webkit-scrollbar-track, .per-game-breakdown::-webkit-scrollbar-track { border-radius: var(--radius-pill); background: var(--surface-2); }
+.games-grid::-webkit-scrollbar-thumb, .deals-grid::-webkit-scrollbar-thumb, .per-game-breakdown::-webkit-scrollbar-thumb { border: 3px solid var(--surface-2); border-radius: var(--radius-pill); background: var(--border-strong); }
+.games-grid::-webkit-scrollbar-thumb:hover, .deals-grid::-webkit-scrollbar-thumb:hover, .per-game-breakdown::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+.games-grid::-webkit-scrollbar-button, .deals-grid::-webkit-scrollbar-button, .per-game-breakdown::-webkit-scrollbar-button { display: block; width: 12px; height: 12px; background-color: var(--surface-2); color: var(--accent); }
+.games-grid::-webkit-scrollbar-button:vertical:decrement, .deals-grid::-webkit-scrollbar-button:vertical:decrement, .per-game-breakdown::-webkit-scrollbar-button:vertical:decrement { background: linear-gradient(135deg, transparent 50%, var(--accent) 50%) 3px 4px / 6px 6px no-repeat, linear-gradient(225deg, transparent 50%, var(--accent) 50%) 3px 4px / 6px 6px no-repeat, var(--surface-2); }
+.games-grid::-webkit-scrollbar-button:vertical:increment, .deals-grid::-webkit-scrollbar-button:vertical:increment, .per-game-breakdown::-webkit-scrollbar-button:vertical:increment { background: linear-gradient(45deg, transparent 50%, var(--accent) 50%) 3px 2px / 6px 6px no-repeat, linear-gradient(315deg, transparent 50%, var(--accent) 50%) 3px 2px / 6px 6px no-repeat, var(--surface-2); }
 .deals-grid > .loading-deals, .deals-grid > .empty-state, .history-grid > .empty-state { grid-column: 1 / -1; width: 100%; }
 
 .deal-card, .history-card-item { height: 100%; overflow: hidden; border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); background: var(--surface-1); box-shadow: var(--shadow-1); transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease); }
