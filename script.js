@@ -48,6 +48,7 @@ document.addEventListener('DOMContentLoaded', function() {
     setupEventListeners();
     initializeTaxPresets();
     calculateTotal();
+    initializeTotalAmountFit();
     initializeDealsFilters();
     loadDeals();
     
@@ -390,10 +391,56 @@ function updateResultValue(elementId, newValue) {
     if (element.textContent !== formattedValue) {
         element.classList.add('value-updating');
         element.textContent = formattedValue;
+        element.title = formattedValue;
+        if (elementId === 'total') fitTotalAmount();
         
         setTimeout(() => {
             element.classList.remove('value-updating');
         }, 300);
+    }
+}
+
+function fitTotalAmount() {
+    const total = document.getElementById('total');
+    if (!total || total.clientWidth === 0) return;
+
+    total.style.fontSize = '';
+    const maxFontSize = parseFloat(getComputedStyle(total).fontSize);
+    let minFontSize = 12;
+    let maxFitFontSize = maxFontSize;
+
+    total.style.fontSize = `${maxFontSize}px`;
+    if (total.scrollWidth <= total.clientWidth) return;
+
+    for (let attempt = 0; attempt < 10; attempt++) {
+        const fontSize = (minFontSize + maxFitFontSize) / 2;
+        total.style.fontSize = `${fontSize}px`;
+
+        if (total.scrollWidth <= total.clientWidth) {
+            minFontSize = fontSize;
+        } else {
+            maxFitFontSize = fontSize;
+        }
+    }
+
+    total.style.fontSize = `${minFontSize}px`;
+}
+
+function initializeTotalAmountFit() {
+    fitTotalAmount();
+    window.addEventListener('resize', fitTotalAmount);
+
+    const resultsCard = document.querySelector('.results-card');
+    if (resultsCard && 'ResizeObserver' in window) {
+        let previousWidth = 0;
+        const observer = new ResizeObserver(([entry]) => {
+            const width = entry.contentRect.width;
+            if (width !== previousWidth) {
+                previousWidth = width;
+                fitTotalAmount();
+            }
+        });
+        observer.observe(resultsCard);
     }
 }
 

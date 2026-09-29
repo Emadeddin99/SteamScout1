@@ -232,7 +232,7 @@ button, select { cursor: pointer; }
 .section-subtitle { color: var(--text-muted); font-size: .95rem; }
 
 .calc-layout { display: grid; grid-template-columns: 1fr; gap: var(--space-5); width: 100%; }
-.calc-config, .calc-results { display: flex; flex-direction: column; gap: var(--space-3); }
+.calc-config, .calc-results { min-width: 0; display: flex; flex-direction: column; gap: var(--space-3); }
 .config-card, .per-game-breakdown {
     padding: var(--space-4);
     background: var(--surface-2);
@@ -317,9 +317,9 @@ button:active { transform: translateY(1px); }
 .result-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: 10px 0; border-bottom: 1px solid var(--border-subtle); }
 .result-label { color: var(--text-muted); font-weight: 600; }
 .result-value { color: var(--text-body); font-size: 1.05rem; font-weight: 700; font-variant-numeric: tabular-nums; }
-.result-row.total { margin-top: var(--space-2); padding-top: var(--space-3); border-top: 1px solid var(--border-accent); border-bottom: 0; }
-.result-row.total .result-label { color: var(--text-heading); }
-.result-row.total .result-value { color: var(--accent); font-family: var(--font-display); font-size: 2.1rem; }
+.result-row.total { min-width: 0; margin-top: var(--space-2); padding-top: var(--space-3); border-top: 1px solid var(--border-accent); border-bottom: 0; }
+.result-row.total .result-label { flex: 0 0 auto; color: var(--text-heading); }
+.result-row.total .result-value { flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--accent); font-family: var(--font-display); font-size: 2.1rem; text-align: right; white-space: nowrap; }
 .save-calculation-btn { width: 100%; min-height: 46px; margin-top: var(--space-3); padding: 10px var(--space-3); border: 1px solid var(--success); border-radius: var(--radius-md); background: var(--success); color: #05261d; font-weight: 700; transition: all var(--transition); }
 .save-calculation-btn:hover:not(:disabled) { background: #6ee7b7; transform: translateY(-1px); box-shadow: var(--shadow-2); }
 .save-calculation-btn:disabled { cursor: not-allowed; opacity: .45; }
