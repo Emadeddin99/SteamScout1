@@ -1665,7 +1665,6 @@ function addGameManual(gameName) {
         }
     }
     
-    clearGameSearch();
 }
 
 // Add game with specific price
@@ -1709,7 +1708,6 @@ function addGameWithPrice(gameName, price) {
         }
     }
     
-    clearGameSearch();
 }
 
 // Clear game search
