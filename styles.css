@@ -1102,6 +1102,27 @@ a:hover {
 /* ============================================
    DEALS SECTION
    ============================================ */
+.game-lookup-section {
+    width: 100%;
+    max-width: 1400px;
+    display: flex;
+    flex-direction: column;
+}
+
+.game-lookup-controls {
+    width: 100%;
+    max-width: 700px;
+    margin-bottom: 24px;
+}
+
+.game-lookup-result:not(:empty) {
+    display: flex;
+}
+
+.game-lookup-result > .deal-card {
+    width: min(100%, 420px);
+}
+
 .deals-section {
     width: 100%;
     max-width: 1400px;

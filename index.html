@@ -199,6 +199,28 @@
                 </div>
             </section>
 
+            <section id="game-lookup" class="section game-lookup-section">
+                <div class="section-header">
+                    <h2><i class="fas fa-magnifying-glass-dollar"></i> Game Price Lookup</h2>
+                    <p class="section-subtitle">Steam price and availability</p>
+                </div>
+
+                <div class="game-lookup-controls">
+                    <div class="deals-search-container">
+                        <div class="deals-search">
+                            <i class="fas fa-search"></i>
+                            <input type="text" id="gameSearchInput" placeholder="Search all games..." autocomplete="off">
+                            <button id="searchClearBtn" class="search-clear" onclick="clearGameSearch()" title="Clear">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                        <div id="searchSuggestions" class="search-suggestions"></div>
+                    </div>
+                </div>
+
+                <div id="gameLookupResult" class="game-lookup-result" aria-live="polite"></div>
+            </section>
+
             <!-- Deals Section -->
             <section id="deals" class="section deals-section">
                 <div class="section-header">
@@ -207,17 +229,6 @@
                 </div>
 
                 <div class="deals-controls">
-                    <div class="deals-search-container">
-                        <div class="deals-search">
-                            <i class="fas fa-search"></i>
-                            <input type="text" id="gameSearchInput" placeholder="Search games..." autocomplete="off">
-                            <button id="searchClearBtn" class="search-clear" onclick="clearGameSearch()" title="Clear">
-                                <i class="fas fa-times"></i>
-                            </button>
-                        </div>
-                        <div id="searchSuggestions" class="search-suggestions"></div>
-                    </div>
-
                     <div class="deals-filter">
                         <select id="dealsSort" onchange="sortDeals(this.value)">
                             <option value="deal">Best Deals</option>

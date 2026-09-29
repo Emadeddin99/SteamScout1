@@ -3,7 +3,7 @@
 
 const API_CONFIG = {
     // RAWG Video Games Database API (works with API key)
-    RAWG_API_KEY: '187867ba2390499797e65d77ee013507',
+    RAWG_API_KEY: '',
     RAWG_GAMES_URL: 'https://api.rawg.io/api/games',
     
     // CheapShark API - REAL Steam/GOG/Epic deals (NO AUTH NEEDED)

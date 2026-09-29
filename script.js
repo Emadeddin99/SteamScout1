@@ -1075,8 +1075,10 @@ function initializeDealsFilters() {
         gameSearchInput.addEventListener('keydown', function(e) {
             if (e.key === 'Enter') {
                 e.preventDefault();
-                // Close suggestions
-                document.getElementById('searchSuggestions').innerHTML = '';
+                const firstMatch = currentGameSuggestions[0];
+                if (firstMatch) {
+                    lookupGamePrices(firstMatch.displayTitle || firstMatch.title, firstMatch.id);
+                }
             }
         });
     }
@@ -1105,16 +1107,8 @@ function handleGameSearch(query) {
 // Fetch game suggestions from RAWG API
 async function fetchGameSuggestions(query) {
     try {
-        const rawgUrl = appConfig.getRawgUrl();
-        const rawgKey = appConfig.getRawgApiKey();
-        
-        if (!rawgKey || rawgKey === '') {
-            console.warn('RAWG API key not configured. Please set RAWG_API_KEY in .env');
-            return [];
-        }
-        
         const response = await fetch(
-            `${rawgUrl}/games?search=${encodeURIComponent(query)}&page_size=8&key=${rawgKey}`
+            `/api/rawg?search=${encodeURIComponent(query)}`
         );
         
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -1239,7 +1233,7 @@ async function lookupGamePrices(gameName, gameID) {
     document.getElementById('searchSuggestions').innerHTML = '';
     
     // Show loading - use searchResultsList if it exists
-    const resultsList = document.getElementById('searchResultsList') || document.getElementById('dealsList');
+    const resultsList = document.getElementById('gameLookupResult');
     resultsList.innerHTML = `
         <div class="loading-deals">
             <div class="spinner"></div>
@@ -1249,15 +1243,8 @@ async function lookupGamePrices(gameName, gameID) {
     
     try {
         // Fetch game details from RAWG
-        const rawgUrl = appConfig.getRawgUrl();
-        const rawgKey = appConfig.getRawgApiKey();
-        
-        if (!rawgKey) {
-            throw new Error('RAWG API key not configured');
-        }
-        
         const gameDetailsResponse = await fetch(
-            `${rawgUrl}/games/${gameID}?key=${rawgKey}`
+            `/api/rawg?id=${encodeURIComponent(gameID)}`
         );
         
         if (!gameDetailsResponse.ok) throw new Error('Failed to fetch game details');
@@ -1475,7 +1462,7 @@ function getSteamUrl(deal) {
 }
 
 function displayGamePricesLookup(gameName, gameID, gameDetails, pricesData) {
-    const resultsList = document.getElementById('dealsList');
+    const resultsList = document.getElementById('gameLookupResult');
 
     // pricesData is expected to be an array of Steam price objects from /api/steam-search
     if (!pricesData || pricesData.length === 0) {
@@ -1650,14 +1637,8 @@ function clearGameSearch() {
         searchInput.value = '';
     }
     document.getElementById('searchSuggestions').innerHTML = '';
-    
-    // Reload all deals
-    if (currentDeals.length > 0) {
-        displayDeals(currentDeals);
-        sortDeals(document.getElementById('dealsSort').value);
-    } else {
-        loadDeals();
-    }
+    currentGameSuggestions = [];
+    document.getElementById('gameLookupResult').innerHTML = '';
 }
 
 // Load deals with real API
