@@ -2095,7 +2095,6 @@ function refreshDeals() {
     for (const key of dealsPageCache.keys()) {
         if (key.startsWith(`${currentDealsSort}:`)) dealsPageCache.delete(key);
     }
-    seenDealKeysBySort.delete(currentDealsSort);
     loadDeals(1, true);
 }
 
