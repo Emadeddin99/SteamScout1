@@ -97,12 +97,20 @@ function setupEventListeners() {
         // Enforce limits: minimum 0, maximum 100
         if (value < 0) value = 0;
         if (value > 100) value = 100;
-        this.value = value;
         // Update slider to match input
         taxRateSlider.value = value;
         // Remove active class from all preset buttons when input is changed
         document.querySelectorAll('.preset-btn').forEach(btn => 
             btn.classList.remove('active'));
+        updateTaxDisplay();
+        triggerAutoCalculate();
+    });
+
+    taxRateInput.addEventListener('change', function() {
+        let value = parseFloat(this.value) || 0;
+        value = Math.max(0, Math.min(100, value));
+        this.value = value;
+        taxRateSlider.value = value;
         updateTaxDisplay();
         triggerAutoCalculate();
     });
