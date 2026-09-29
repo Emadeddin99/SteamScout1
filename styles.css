@@ -303,7 +303,7 @@ button:active { transform: translateY(1px); }
 .games-header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding-bottom: var(--space-3); border-bottom: 1px solid var(--border-subtle); margin-bottom: var(--space-4); }
 .games-stats { display: flex; gap: var(--space-2); flex-wrap: wrap; justify-content: flex-end; font-size: .85rem; }
 .stat { padding: 5px 9px; border: 1px solid var(--border-subtle); border-radius: var(--radius-pill); background: var(--surface-2); color: var(--text-muted); }
-.games-grid { min-width: 0; max-height: min(500px, 60vh); overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr)); align-content: start; gap: var(--space-2); }
+.games-grid { min-width: 0; max-height: min(640px, 72vh); padding: var(--space-2); overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--surface-3); display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr)); align-content: start; gap: var(--space-2); }
 .game-input-card { display: flex; flex-direction: column; gap: var(--space-1); padding: 10px; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--surface-2); animation: cardEnter .25s var(--ease) both; }
 .game-input-card:hover { border-color: var(--border-strong); box-shadow: var(--shadow-1); }
 .game-input-card label { min-width: 0; overflow: hidden; color: var(--text-muted); font-size: .8rem; font-weight: 700; letter-spacing: 0; text-overflow: ellipsis; white-space: nowrap; }
