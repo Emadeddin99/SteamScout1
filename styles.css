@@ -471,13 +471,15 @@ button:active { transform: translateY(1px); }
 
 @media (max-width: 640px) {
     html { font-size: 14px; }
-    :root { --header-height: 60px; }
+    :root { --header-height: 112px; }
     .main-content { padding: calc(var(--header-height) + var(--space-3)) max(var(--space-3), env(safe-area-inset-left)) var(--space-3) max(var(--space-3), env(safe-area-inset-right)); }
     .header-content { padding: 0 max(var(--space-2), env(safe-area-inset-left)); gap: var(--space-2); }
-    .header.shrink { height: 52px; }
+    .header { height: 112px; }
+    .header.shrink { height: 100px; }
+    .header-content { flex-wrap: wrap; align-content: center; }
     .logo-text h1, .tagline, .nav-label { display: none; }
     .logo-icon { font-size: 1.5rem; }
-    .header-search-container { min-width: 110px; flex-basis: 110px; }
+    .header-search-container { order: 3; width: 100%; min-width: 0; flex: 1 0 100%; }
     .header-search-container .deals-search { min-height: 40px; padding: 6px 8px; }
     .header-search-container #gameSearchInput { font-size: .85rem; }
     .header-search-container .search-clear { min-height: 30px; padding: 4px 6px; }
