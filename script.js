@@ -25,7 +25,7 @@ let currentGameSuggestions = []; // Store current suggestions for Enter key disp
 let activeGameSuggestionIndex = -1;
 
 let currentPage = 1;
-const dealsPerPage = 21;
+const dealsPerPage = 20;
 
 
 

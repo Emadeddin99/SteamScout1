@@ -1,6 +1,9 @@
 {
-  "name": "steam-scout",
+  "name": "steam-hunt",
   "version": "1.0.0",
   "private": true,
+  "scripts": {
+    "test:deals": "node --test test-deals-pagination.mjs"
+  },
   "dependencies": {}
 }

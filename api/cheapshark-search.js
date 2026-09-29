@@ -32,7 +32,7 @@ export default async function handler(req, res) {
         
         const dealsResponse = await fetch(dealsUrl, {
             headers: {
-                'User-Agent': 'SteamScout/1.0'
+                'User-Agent': 'SteamHunt/1.0'
             }
         });
 

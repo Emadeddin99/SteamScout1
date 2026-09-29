@@ -1,4 +1,4 @@
-const DEALS_PER_PAGE = 21;
+const DEALS_PER_PAGE = 20;
 
 export default async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -55,33 +55,49 @@ async function fetchIsThereAnyDealDealsPage(page, sort, pageSize) {
     if (!apiKey) return null;
 
     try {
-        const params = new URLSearchParams({
-            country: 'US',
-            offset: String((page - 1) * pageSize),
-            limit: String(pageSize),
-            sort: sort === 'price' ? 'price' : '-cut',
-            shops: '61'
-        });
-        const response = await fetch(`https://api.isthereanydeal.com/deals/v2?${params}`, {
-            headers: {
-                'ITAD-API-Key': apiKey,
-                Accept: 'application/json'
-            }
-        });
+        const firstDealIndex = (page - 1) * pageSize;
+        const requiredDealCount = firstDealIndex + pageSize + 1;
+        const deals = [];
+        const seen = new Set();
+        let offset = 0;
+        let hasMore = true;
 
-        if (!response.ok) {
-            console.warn(`[API] ITAD returned ${response.status}; using CheapShark fallback`);
-            return null;
+        while (deals.length < requiredDealCount && hasMore) {
+            const params = new URLSearchParams({
+                country: 'US',
+                offset: String(offset),
+                limit: String(pageSize),
+                sort: sort === 'price' ? 'price' : '-cut',
+                shops: '61'
+            });
+            const response = await fetch(`https://api.isthereanydeal.com/deals/v2?${params}`, {
+                headers: {
+                    'ITAD-API-Key': apiKey,
+                    Accept: 'application/json'
+                }
+            });
+
+            if (!response.ok) {
+                console.warn(`[API] ITAD returned ${response.status}; using CheapShark fallback`);
+                return null;
+            }
+
+            const data = await response.json();
+            if (!Array.isArray(data.list)) return null;
+
+            const batch = data.list
+                .map(normalizeITADDeal)
+                .filter(deal => deal && deal.discount > 0 && deal.salePrice < deal.normalPrice);
+            appendUniqueDeals(deals, seen, batch);
+
+            offset += data.list.length;
+            hasMore = data.hasMore === true && data.list.length > 0;
         }
 
-        const data = await response.json();
-        if (!Array.isArray(data.list)) return null;
-
-        const deals = deduplicatePagedDeals(data.list
-            .map(normalizeITADDeal)
-            .filter(deal => deal && deal.discount > 0 && deal.salePrice < deal.normalPrice));
-
-        return { deals, hasMore: Boolean(data.hasMore) };
+        return {
+            deals: deals.slice(firstDealIndex, firstDealIndex + pageSize),
+            hasMore: deals.length > firstDealIndex + pageSize || hasMore
+        };
     } catch (error) {
         console.warn('[API] ITAD fetch error; using CheapShark fallback:', error.message);
         return null;
@@ -117,16 +133,17 @@ function normalizeITADDeal(deal) {
     }
 }
 
-function deduplicatePagedDeals(deals) {
-    const seen = new Set();
-    return deals.filter(deal => {
+function appendUniqueDeals(deals, seen, candidates) {
+    for (const deal of candidates) {
         const key = deal.steamAppID
             ? `steam:${deal.steamAppID}`
-            : `itad:${deal.steamGameId || deal.title.trim().toLowerCase()}`;
-        if (seen.has(key)) return false;
+            : deal.steamGameId
+                ? `itad:${deal.steamGameId}`
+                : `title:${deal.title.trim().toLowerCase()}`;
+        if (seen.has(key)) continue;
         seen.add(key);
-        return true;
-    });
+        deals.push(deal);
+    }
 }
 
 /**
@@ -156,32 +173,46 @@ function getSteamUrl(deal) {
 async function fetchCheapSharkDealsPage(page, sort, pageSize) {
     try {
         const sortBy = sort === 'price' ? 'Price' : sort === 'discount' ? 'Savings' : 'Deal Rating';
-        const params = new URLSearchParams({
-            storeID: '1',
-            pageNumber: String(page - 1),
-            pageSize: String(pageSize),
-            sortBy
-        });
-        const response = await fetch(`https://www.cheapshark.com/api/1.0/deals?${params}`, {
-            headers: { 'User-Agent': 'SteamScout/1.0' }
-        });
+        const firstDealIndex = (page - 1) * pageSize;
+        const requiredDealCount = firstDealIndex + pageSize + 1;
+        const deals = [];
+        const seen = new Set();
+        let upstreamPage = 0;
+        let hasMore = true;
 
-        if (!response.ok) {
-            const errorBody = await response.text();
-            if (response.status === 400 && /Too Many Results/i.test(errorBody)) {
-                return { deals: [], hasMore: false };
+        while (deals.length < requiredDealCount && hasMore) {
+            const params = new URLSearchParams({
+                storeID: '1',
+                pageNumber: String(upstreamPage),
+                pageSize: String(pageSize),
+                sortBy
+            });
+            const response = await fetch(`https://www.cheapshark.com/api/1.0/deals?${params}`, {
+                headers: { 'User-Agent': 'SteamHunt/1.0' }
+            });
+
+            if (!response.ok) {
+                const errorBody = await response.text();
+                if (response.status === 400 && /Too Many Results/i.test(errorBody)) {
+                    hasMore = false;
+                    break;
+                }
+                throw new Error(`CheapShark returned ${response.status}`);
             }
-            throw new Error(`CheapShark returned ${response.status}`);
+
+            const rawDeals = await response.json();
+            const batch = filterValidDeals(deduplicateDeals((Array.isArray(rawDeals) ? rawDeals : [])
+                .map(normalizeCheapSharkDeal)
+                .filter(Boolean)));
+            appendUniqueDeals(deals, seen, batch);
+
+            hasMore = Array.isArray(rawDeals) && rawDeals.length === pageSize;
+            upstreamPage++;
         }
 
-        const rawDeals = await response.json();
-        const deals = deduplicateDeals((Array.isArray(rawDeals) ? rawDeals : [])
-            .map(normalizeCheapSharkDeal)
-            .filter(Boolean));
-
         return {
-            deals: filterValidDeals(deals),
-            hasMore: Array.isArray(rawDeals) && rawDeals.length === pageSize
+            deals: deals.slice(firstDealIndex, firstDealIndex + pageSize),
+            hasMore: deals.length > firstDealIndex + pageSize || hasMore
         };
     } catch (error) {
         console.error('[API] CheapShark fallback failed:', error.message);
