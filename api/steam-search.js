@@ -45,19 +45,20 @@ export default async function handler(req, res) {
             });
         }
 
-        // Find best match from search results
-        // Score each result and pick the best one
+        // Score normalized names so punctuation and Roman-numeral differences do not hide valid Steam matches.
         const gameNameLower = gameName.toLowerCase();
+        const normalizedQuery = normalizeTitle(gameName);
         let bestMatch = searchData[0];
         let bestScore = 0;
 
         // Extract year if present in search query
         const yearMatch = gameName.match(/\((\d{4})\)/);
         const searchYear = yearMatch ? yearMatch[1] : null;
-        const baseGameName = gameName.split('(')[0].trim().toLowerCase();
+        const baseGameName = normalizeTitle(gameName.split('(')[0]);
 
         for (const result of searchData.slice(0, 15)) {
             const titleLower = result.name.toLowerCase();
+            const normalizedTitle = normalizeTitle(result.name);
             let score = 0;
 
             // Penalize sequel titles if we're not searching for sequels
@@ -68,8 +69,7 @@ export default async function handler(req, res) {
                 score = -100; // Penalize sequels
             }
 
-            // Exact match gets highest score
-            if (titleLower === gameNameLower) {
+            if (normalizedTitle === normalizedQuery) {
                 score = 1000;
             }
             // If year specified, prioritize results with that year
@@ -77,11 +77,11 @@ export default async function handler(req, res) {
                 score = 800;
             }
             // Starts with base game name
-            else if (titleLower.startsWith(baseGameName)) {
+            else if (normalizedTitle.startsWith(baseGameName)) {
                 score = 500;
             }
             // Contains base game name
-            else if (titleLower.includes(baseGameName)) {
+            else if (normalizedTitle.includes(baseGameName)) {
                 score = 300;
             }
 
@@ -101,7 +101,7 @@ export default async function handler(req, res) {
             titleMismatch = true;
         }
 
-        // Get app details directly from Steam (server request, no CORS issues)
+        // Get app details directly from Steam using the selected Steam app ID.
         const steamDetailsUrl = `https://store.steampowered.com/api/appdetails?appids=${appId}&cc=US`;
 
         const detailResponse = await fetch(steamDetailsUrl, {
@@ -180,6 +180,23 @@ export default async function handler(req, res) {
             prices: []
         });
     }
+}
+
+function normalizeTitle(title) {
+    const romanNumerals = {
+        i: '1', ii: '2', iii: '3', iv: '4', v: '5',
+        vi: '6', vii: '7', viii: '8', ix: '9', x: '10'
+    };
+
+    return String(title)
+        .replace(/[™®©]/g, '')
+        .normalize('NFKD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .replace(/\b[ivx]+\b/g, numeral => romanNumerals[numeral] || numeral)
+        .replace(/[^a-z0-9]+/g, ' ')
+        .trim()
+        .replace(/\s+/g, ' ');
 }
 
 /**
