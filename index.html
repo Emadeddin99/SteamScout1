@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SteamScout - Steam Price Calculator & Deal Finder</title>
+    <meta name="description" content="Calculate your Steam game purchases with automatic tax calculation, browse real-time deals, and track your history.">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="styles.css">
+    <link rel="icon" type="image/png" href="assets/logo.png">
+</head>
+<body>
+    <!-- Configuration Module -->
+    <script src="config.js"></script>
+    
+    <div class="app-container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <div class="logo-section">
+                    <div class="logo-icon">
+                        <i class="fa-solid fa-magnifying-glass-dollar"></i>
+                    </div>
+                    <div class="logo-text">
+                        <h1>SteamScout</h1>
+                        <p class="tagline">Calculate • Browse • Save</p>
+                    </div>
+                </div>
+                <nav class="header-nav">
+                    <button class="nav-btn" onclick="scrollToSection('calculator')" title="Go to calculator">
+                        <i class="fas fa-calculator"></i>
+                        <span class="nav-label">Calculator</span>
+                    </button>
+                    <button class="nav-btn" onclick="scrollToSection('deals')" title="Browse deals">
+                        <i class="fas fa-fire"></i>
+                        <span class="nav-label">Deals</span>
+                    </button>
+                    <button class="nav-btn" onclick="scrollToSection('history')" title="View history">
+                        <i class="fas fa-history"></i>
+                        <span class="nav-label">History</span>
+                    </button>
+                    <button class="nav-btn settings-btn" onclick="toggleSettings()" title="Settings">
+                        <i class="fas fa-cog"></i>
+                        <span class="nav-label">Settings</span>
+                    </button>
+                </nav>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Settings Panel (Collapsible) -->
+            <section id="settingsPanel" class="settings-panel">
+                <div class="settings-header">
+                    <h2><i class="fas fa-cog"></i> Settings</h2>
+                    <button class="close-btn" onclick="toggleSettings()" title="Close settings">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="settings-body">
+                    <div class="settings-group">
+                        <h3>Tools</h3>
+                        <button class="setting-btn" onclick="resetCalculator()">
+                            <i class="fas fa-redo"></i>
+                            Reset Calculator
+                        </button>
+                        <button class="setting-btn" onclick="copyToClipboard()">
+                            <i class="fas fa-copy"></i>
+                            Copy Results
+                        </button>
+                        <button class="setting-btn" onclick="printSummary()">
+                            <i class="fas fa-print"></i>
+                            Print Summary
+                        </button>
+                    </div>
+                    <div class="settings-group">
+                        <h3>Data</h3>
+                        <button class="setting-btn danger" onclick="clearAllPrices()">
+                            <i class="fas fa-trash"></i>
+                            Clear Prices
+                        </button>
+                        <button class="setting-btn danger" onclick="clearHistory()">
+                            <i class="fas fa-history"></i>
+                            Clear History
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Calculator Section -->
+            <section id="calculator" class="section calculator-section">
+                <div class="section-header">
+                    <h2><i class="fas fa-calculator"></i> Price Calculator</h2>
+                    <p class="section-subtitle">Add your game prices and calculate total cost with tax</p>
+                </div>
+
+                <div class="calc-layout">
+                    <!-- Left: Configuration -->
+                    <div class="calc-config">
+                        <div class="config-card">
+                            <h3><i class="fas fa-gamepad"></i> Number of Games</h3>
+                            <div class="config-control">
+                                <button class="counter-btn" onclick="changeGameCount(-1)">
+                                    <i class="fas fa-minus"></i>
+                                </button>
+                                <input type="number" id="gameCount" value="1" min="1" max="50">
+                                <button class="counter-btn" onclick="changeGameCount(1)">
+                                    <i class="fas fa-plus"></i>
+                                </button>
+                            </div>
+                            <button class="apply-btn" onclick="updateGameFields()">
+                                <i class="fas fa-sync-alt"></i> Apply
+                            </button>
+                        </div>
+
+                        <div class="config-card">
+                            <h3><i class="fas fa-percentage"></i> Tax Rate</h3>
+                            <div class="tax-display">
+                                <input type="number" id="taxRateInput" class="tax-input" min="0" max="100" value="8" step="0.5">
+                                <span class="tax-symbol">%</span>
+                            </div>
+                            <input type="range" id="taxRateSlider" class="tax-slider" min="0" max="100" value="8" step="0.5">
+                            <div class="slider-labels">
+                                <span>0%</span>
+                                <span>100%</span>
+                            </div>
+                            <div class="tax-presets">
+                                <button class="preset-btn" data-tax="5">5%</button>
+                                <button class="preset-btn active" data-tax="8">8%</button>
+                                <button class="preset-btn" data-tax="10">10%</button>
+                                <button class="preset-btn" data-tax="15">15%</button>
+                                <button class="preset-btn" data-tax="20">20%</button>
+                            </div>
+                        </div>
+                        <button class="sample-data-btn" onclick="fillSampleData()">
+                            <i class="fas fa-vial"></i> Load Sample Data
+                        </button>
+                    </div>
+
+                    <!-- Middle: Game Prices -->
+                    <div class="calc-games">
+                        <div class="games-header">
+                            <h3><i class="fas fa-shopping-cart"></i> Game Prices</h3>
+                            <div class="games-stats">
+                                <span class="stat" id="pricedGamesCount">0 priced</span>
+                                <span class="stat" id="totalGames">1 game</span>
+                            </div>
+                        </div>
+                        <div id="gameInputs" class="games-grid">
+                            <div class="game-input-card" data-index="0">
+                                <label for="gamePrice0">Game 1</label>
+                                <input type="text" inputmode="decimal" pattern="[0-9]*\.?[0-9]*" id="gamePrice0" placeholder="Enter price" data-index="0">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Right: Results -->
+                    <div class="calc-results">
+                        <div class="results-card">
+                            <h3><i class="fas fa-bolt"></i> Breakdown</h3>
+                            
+                            <div class="result-row">
+                                <span class="result-label">Items</span>
+                                <span class="result-value" id="itemCount">0</span>
+                            </div>
+                            
+                            <div class="result-row">
+                                <span class="result-label">Subtotal</span>
+                                <span class="result-value" id="subtotal">$0.00</span>
+                            </div>
+                            
+                            <div class="result-row">
+                                <span class="result-label">Tax (<span id="taxRateDisplay">8%</span>)</span>
+                                <span class="result-value" id="tax">$0.00</span>
+                            </div>
+                            
+                            <div class="result-divider"></div>
+                            
+                            <div class="result-row total">
+                                <span class="result-label">Total</span>
+                                <span class="result-value total-amount" id="total">$0.00</span>
+                            </div>
+
+                            <button id="saveBtn" class="save-calculation-btn" onclick="saveToHistory()" disabled>
+                                <i class="fas fa-save"></i> Save Calculation
+                            </button>
+                        </div>
+
+                        <div class="per-game-breakdown">
+                            <h4><i class="fas fa-gamepad"></i> Per-Game Costs</h4>
+                            <div id="perGameBreakdown" class="breakdown-list">
+                                <div class="empty-state">
+                                    <i class="fas fa-info-circle"></i>
+                                    <p>Enter prices to see breakdown</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Deals Section -->
+            <section id="deals" class="section deals-section">
+                <div class="section-header">
+                    <h2><i class="fas fa-fire"></i> Current Steam Deals</h2>
+                    <p class="section-subtitle">Scout for deals</p>
+                </div>
+
+                <div class="deals-controls">
+                    <div class="deals-search-container">
+                        <div class="deals-search">
+                            <i class="fas fa-search"></i>
+                            <input type="text" id="gameSearchInput" placeholder="Search games..." autocomplete="off">
+                            <button id="searchClearBtn" class="search-clear" onclick="clearGameSearch()" title="Clear">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                        <div id="searchSuggestions" class="search-suggestions"></div>
+                    </div>
+
+                    <div class="deals-filter">
+                        <select id="dealsSort" onchange="sortDeals(this.value)">
+                            <option value="deal">Best Deals</option>
+                            <option value="discount">Highest Discount</option>
+                            <option value="price">Lowest Price</option>
+                        </select>
+                        <button class="refresh-btn" onclick="refreshDeals()" title="Refresh deals">
+                            <i class="fas fa-sync-alt"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div id="dealsList" class="deals-grid">
+                    <div class="loading-deals">
+                        <div class="spinner"></div>
+                        <p>Loading deals...</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- History Section -->
+            <section id="history" class="section history-section">
+                <div class="section-header">
+                    <h2><i class="fas fa-history"></i> Saved Calculations</h2>
+                    <p class="section-subtitle">Your calculation history</p>
+                </div>
+
+                <div class="history-controls">
+                    <div class="history-count">
+                        <i class="fas fa-database"></i>
+                        <span id="historyCount">0</span> calculations
+                    </div>
+                    <button class="clear-history-btn" onclick="clearHistory()" title="Clear all">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+
+                <div id="historyList" class="history-grid">
+                    <div class="empty-state">
+                        <i class="fas fa-clock"></i>
+                        <p>No saved calculations yet</p>
+                        <p class="subtext">Your calculations will appear here</p>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <div class="footer-content">
+                <div class="footer-info">
+                    <i class="fas fa-lock"></i>
+                    <span>No data sent to server • All calculations local</span>
+                </div>
+                <div class="footer-links">
+                    <p>© 2026 SteamScout | Made by Emad Rihan</p>
+                </div>
+            </div>
+        </footer>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
