@@ -1,4 +1,4 @@
-const DEALS_PER_PAGE = 20;
+const DEALS_PER_PAGE = 21;
 
 export default async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -77,9 +77,9 @@ async function fetchIsThereAnyDealDealsPage(page, sort, pageSize) {
         const data = await response.json();
         if (!Array.isArray(data.list)) return null;
 
-        const deals = data.list
+        const deals = deduplicatePagedDeals(data.list
             .map(normalizeITADDeal)
-            .filter(deal => deal && deal.discount > 0 && deal.salePrice < deal.normalPrice);
+            .filter(deal => deal && deal.discount > 0 && deal.salePrice < deal.normalPrice));
 
         return { deals, hasMore: Boolean(data.hasMore) };
     } catch (error) {
@@ -115,6 +115,18 @@ function normalizeITADDeal(deal) {
         console.warn('[API] Failed to normalize ITAD deal:', error.message);
         return null;
     }
+}
+
+function deduplicatePagedDeals(deals) {
+    const seen = new Set();
+    return deals.filter(deal => {
+        const key = deal.steamAppID
+            ? `steam:${deal.steamAppID}`
+            : `itad:${deal.steamGameId || deal.title.trim().toLowerCase()}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
 }
 
 /**

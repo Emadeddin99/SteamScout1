@@ -16,6 +16,7 @@ let currentDealsSort = 'discount';
 const dealsPageCache = new Map();
 const dealsPageCacheTtl = 5 * 60 * 1000;
 let failedDealsRequest = null;
+const seenDealKeysBySort = new Map();
 
 // Search cache
 let gameSearchCache = [];
@@ -24,7 +25,7 @@ let currentGameSuggestions = []; // Store current suggestions for Enter key disp
 let activeGameSuggestionIndex = -1;
 
 let currentPage = 1;
-const dealsPerPage = 20;
+const dealsPerPage = 21;
 
 
 
@@ -1718,7 +1719,10 @@ async function loadDeals(page = 1, forceRefresh = false, requestedSort = null) {
 
         currentPage = requestedPage;
         currentDealsSort = sort;
-        currentDeals = result.deals;
+        if (requestedPage === 1) {
+            seenDealKeysBySort.set(sort, new Set());
+        }
+        currentDeals = removePreviouslySeenDeals(result.deals, sort);
         dealsHasMore = result.hasMore;
         failedDealsRequest = null;
         cacheDealsPage(cacheKey, currentDeals, dealsHasMore);
@@ -1770,6 +1774,7 @@ async function fetchDealsWithCredentials(page, sort) {
             storeID: '1',
             storeName: deal.store || 'Steam',
             steamAppID: deal.steamAppID,
+            steamGameId: deal.steamGameId,
             appId: deal.steamAppID,
             id: deal.steamAppID,
             storeUrl: deal.url || getSteamUrl({ steamAppID: deal.steamAppID, title: deal.title }),
@@ -1778,6 +1783,25 @@ async function fetchDealsWithCredentials(page, sort) {
     });
 
     return { deals, hasMore: apiResponse.hasMore === true };
+}
+
+function removePreviouslySeenDeals(deals, sort) {
+    let seen = seenDealKeysBySort.get(sort);
+    if (!seen) {
+        seen = new Set();
+        seenDealKeysBySort.set(sort, seen);
+    }
+
+    return deals.filter(deal => {
+        const key = deal.steamAppID
+            ? `steam:${deal.steamAppID}`
+            : deal.steamGameId
+                ? `itad:${deal.steamGameId}`
+                : `title:${deal.title.trim().toLowerCase()}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
 }
 
 function cacheDealsPage(key, pageDeals, hasMore) {
@@ -2068,8 +2092,11 @@ function refreshDeals() {
         showNotification("Already loading deals...", "warning");
         return;
     }
-    dealsPageCache.delete(`${currentDealsSort}:${currentPage}`);
-    loadDeals(currentPage, true);
+    for (const key of dealsPageCache.keys()) {
+        if (key.startsWith(`${currentDealsSort}:`)) dealsPageCache.delete(key);
+    }
+    seenDealKeysBySort.delete(currentDealsSort);
+    loadDeals(1, true);
 }
 
 // Quick add deal price to calculator
