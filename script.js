@@ -19,14 +19,16 @@ let currentDeals = [];
 let dealsLoading = false;
 let dealsHasMore = false;
 let currentDealsSort = 'discount';
+let currentDealsSearch = '';
 const dealsPageCache = new Map();
 const dealsPageCacheTtl = 5 * 60 * 1000;
 let failedDealsRequest = null;
-const seenDealKeysBySort = new Map();
+const seenDealKeysByFilter = new Map();
 
 // Search cache
 let gameSearchCache = [];
 let searchTimeout = null;
+let dealsSearchTimeout = null;
 let currentGameSuggestions = []; // Store current suggestions for Enter key display
 let activeGameSuggestionIndex = -1;
 
@@ -1063,6 +1065,16 @@ function initializeDealsFilters() {
             sortDeals(this.value);
         });
     }
+
+    const dealsSearchInput = document.getElementById('dealsSearchInput');
+    if (dealsSearchInput) {
+        dealsSearchInput.addEventListener('input', function() {
+            clearTimeout(dealsSearchTimeout);
+            dealsSearchTimeout = setTimeout(() => {
+                loadDeals(1, true, null, dealsSearchInput.value);
+            }, 300);
+        });
+    }
     
     // Setup game search
     const gameSearchInput = document.getElementById('gameSearchInput');
@@ -1726,17 +1738,22 @@ function clearGameSearch() {
 }
 
 // Load deals with real API
-async function loadDeals(page = 1, forceRefresh = false, requestedSort = null) {
+async function loadDeals(page = 1, forceRefresh = false, requestedSort = null, requestedSearch = null) {
     if (dealsLoading) return;
 
     const requestedPage = Math.max(1, Number.parseInt(page, 10) || 1);
     const sort = requestedSort || document.getElementById('dealsSort').value || currentDealsSort;
-    const cacheKey = `${sort}:${requestedPage}`;
+    const searchInput = document.getElementById('dealsSearchInput');
+    const search = String(requestedSearch === null ? searchInput?.value || '' : requestedSearch)
+        .trim()
+        .toLowerCase();
+    const cacheKey = `${sort}:${search}:${requestedPage}`;
     const cachedPage = dealsPageCache.get(cacheKey);
 
     if (!forceRefresh && cachedPage && Date.now() - cachedPage.timestamp < dealsPageCacheTtl) {
         currentPage = requestedPage;
         currentDealsSort = sort;
+        currentDealsSearch = search;
         currentDeals = cachedPage.deals;
         dealsHasMore = cachedPage.hasMore;
         failedDealsRequest = null;
@@ -1748,7 +1765,7 @@ async function loadDeals(page = 1, forceRefresh = false, requestedSort = null) {
 
     dealsLoading = true;
     updateDealsPaginationControls();
-    setDealsPageStatus(`Loading page ${requestedPage}...`);
+    setDealsPageStatus(search ? `Searching deals, page ${requestedPage}...` : `Loading page ${requestedPage}...`);
 
     const dealsList = document.getElementById('dealsList');
     if (currentDeals.length === 0) {
@@ -1756,7 +1773,7 @@ async function loadDeals(page = 1, forceRefresh = false, requestedSort = null) {
     }
 
     try {
-        const result = await fetchDealsWithCredentials(requestedPage, sort);
+        const result = await fetchDealsWithCredentials(requestedPage, sort, search);
 
         if (requestedPage > 1 && result.deals.length === 0) {
             dealsHasMore = false;
@@ -1767,10 +1784,12 @@ async function loadDeals(page = 1, forceRefresh = false, requestedSort = null) {
 
         currentPage = requestedPage;
         currentDealsSort = sort;
+        currentDealsSearch = search;
+        const filterKey = `${sort}:${search}`;
         if (requestedPage === 1) {
-            seenDealKeysBySort.set(sort, new Set());
+            seenDealKeysByFilter.set(filterKey, new Set());
         }
-        currentDeals = removePreviouslySeenDeals(result.deals, sort);
+        currentDeals = removePreviouslySeenDeals(result.deals, sort, search);
         dealsHasMore = result.hasMore;
         failedDealsRequest = null;
         cacheDealsPage(cacheKey, currentDeals, dealsHasMore);
@@ -1778,7 +1797,7 @@ async function loadDeals(page = 1, forceRefresh = false, requestedSort = null) {
         setDealsPageStatus('');
     } catch (error) {
         console.error('Error loading deals:', error);
-        failedDealsRequest = { page: requestedPage, sort };
+        failedDealsRequest = { page: requestedPage, sort, search };
         document.getElementById('dealsSort').value = currentDealsSort;
         setDealsPageStatus('Unable to load this page. Please try again.', true);
         if (currentDeals.length === 0) {
@@ -1791,12 +1810,13 @@ async function loadDeals(page = 1, forceRefresh = false, requestedSort = null) {
 }
 
 // Fetch real deals from Steam, Epic Games using serverless API (CORS-safe)
-async function fetchDealsWithCredentials(page, sort) {
+async function fetchDealsWithCredentials(page, sort, search) {
     const params = new URLSearchParams({
         page: String(page),
         limit: String(dealsPerPage),
         sort
     });
+    if (search) params.set('search', search);
     const response = await fetch(`/api/deals?${params}`);
     const apiResponse = await response.json();
 
@@ -1832,11 +1852,12 @@ async function fetchDealsWithCredentials(page, sort) {
     return { deals, hasMore: apiResponse.hasMore === true };
 }
 
-function removePreviouslySeenDeals(deals, sort) {
-    let seen = seenDealKeysBySort.get(sort);
+function removePreviouslySeenDeals(deals, sort, search) {
+    const filterKey = `${sort}:${search}`;
+    let seen = seenDealKeysByFilter.get(filterKey);
     if (!seen) {
         seen = new Set();
-        seenDealKeysBySort.set(sort, seen);
+        seenDealKeysByFilter.set(filterKey, seen);
     }
 
     return deals.filter(deal => {
@@ -1884,7 +1905,7 @@ function setDealsPageStatus(message, isError = false) {
 
 function retryDealsPage() {
     if (!failedDealsRequest || dealsLoading) return;
-    loadDeals(failedDealsRequest.page, true, failedDealsRequest.sort);
+    loadDeals(failedDealsRequest.page, true, failedDealsRequest.sort, failedDealsRequest.search);
 }
 
 function updateDealsPaginationControls() {
@@ -1892,11 +1913,13 @@ function updateDealsPaginationControls() {
     const nextButton = document.getElementById('dealsNextPage');
     const pageIndicator = document.getElementById('dealsPageIndicator');
     const sortSelect = document.getElementById('dealsSort');
+    const searchInput = document.getElementById('dealsSearchInput');
 
     if (previousButton) previousButton.disabled = dealsLoading || currentPage <= 1;
     if (nextButton) nextButton.disabled = dealsLoading || !dealsHasMore;
     if (pageIndicator) pageIndicator.textContent = `Page ${currentPage}`;
     if (sortSelect) sortSelect.disabled = dealsLoading;
+    if (searchInput) searchInput.disabled = dealsLoading;
 }
 
 // Fetch Steam store featured games/deals

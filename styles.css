@@ -348,7 +348,11 @@ button:active { transform: translateY(1px); }
 #gameSearchInput::placeholder { color: var(--text-muted); }
 .search-clear { display: inline-flex; align-items: center; justify-content: center; min-height: 36px; padding: 6px 10px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text-muted); transition: background var(--transition), color var(--transition); }
 .search-clear:hover { background: var(--accent-soft); color: var(--accent); }
-.deals-filter { display: flex; gap: var(--space-2); }
+.deals-filter { display: flex; flex: 1; justify-content: flex-end; gap: var(--space-2); }
+#dealsSearchInput { width: min(100%, 280px); min-width: 180px; min-height: 44px; padding: 8px 12px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: var(--surface-2); color: var(--text-body); }
+#dealsSearchInput::placeholder { color: var(--text-muted); }
+#dealsSearchInput:focus { border-color: var(--border-accent); outline: none; }
+#dealsSearchInput:disabled { opacity: .65; }
 #dealsSort { min-height: 44px; padding: 8px 12px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: var(--surface-2); color: var(--text-body); }
 #dealsSort:hover, #dealsSort:focus { border-color: var(--border-accent); outline: none; }
 .refresh-btn { min-width: 44px; padding: 8px 12px; }
@@ -491,7 +495,8 @@ button:active { transform: translateY(1px); }
     .section { padding: var(--space-3); margin-bottom: var(--space-3); border-radius: var(--radius-md); }
     h1 { font-size: 1.75rem; } h2 { font-size: 1.5rem; } h3 { font-size: 1.2rem; }
     .deals-controls { justify-content: stretch; }
-    .deals-filter { width: 100%; }
+    .deals-filter { width: 100%; flex-wrap: wrap; justify-content: stretch; }
+    #dealsSearchInput { flex: 1 1 100%; width: 100%; }
     #dealsSort { flex: 1; }
     .deal-prices { grid-template-columns: 1fr; }
     .tax-presets { grid-template-columns: repeat(3, 1fr); gap: var(--space-1); }

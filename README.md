@@ -1,6 +1,6 @@
-# SteamScout
+# SteamHunt
 
-SteamScout is a browser-based Steam price calculator and deal finder. Calculations are stored locally, while search and pricing requests use same-origin serverless API proxies.
+SteamHunt is a browser-based Steam price calculator and deal finder. Calculations are stored locally, while search and pricing requests use same-origin serverless API proxies.
 
 ## Requirements
 

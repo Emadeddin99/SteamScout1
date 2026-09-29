@@ -3,10 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SteamScout - Steam Price Calculator & Deal Finder</title>
+    <title>SteamHunt - Steam Price Calculator & Deal Finder</title>
     <meta name="description" content="Calculate your Steam game purchases with automatic tax calculation, browse real-time deals, and track your history.">
     <meta name="theme-color" content="#0a0e27">
-    <meta property="og:title" content="SteamScout - Steam Price Calculator & Deal Finder">
+    <meta property="og:title" content="SteamHunt - Steam Price Calculator & Deal Finder">
     <meta property="og:description" content="Calculate Steam purchases and browse current game deals.">
     <meta property="og:type" content="website">
     <meta property="og:image" content="/icon.png">
@@ -28,7 +28,7 @@
                         <i class="fa-solid fa-magnifying-glass-dollar"></i>
                     </div>
                     <div class="logo-text">
-                        <h1>SteamScout</h1>
+                        <h1>SteamHunt</h1>
                         <p class="tagline">Calculate • Browse • Save</p>
                     </div>
                 </div>
@@ -228,6 +228,8 @@
 
                 <div class="deals-controls">
                     <div class="deals-filter">
+                        <label class="sr-only" for="dealsSearchInput">Filter deals by title</label>
+                        <input id="dealsSearchInput" type="search" placeholder="Filter deal titles..." autocomplete="off">
                         <label class="sr-only" for="dealsSort">Sort deals</label>
                         <select id="dealsSort">
                             <option value="deal">Best Deals</option>
@@ -294,7 +296,7 @@
                     <span>Calculations stay local • Pricing queries use secure serverless proxies</span>
                 </div>
                 <div class="footer-links">
-                    <p>© 2026 SteamScout | Made by Emad Rihan</p>
+                    <p>© 2026 SteamHunt | Made by Emad Rihan</p>
                 </div>
             </div>
         </footer>
