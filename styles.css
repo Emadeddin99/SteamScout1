@@ -185,6 +185,12 @@ button, select { cursor: pointer; }
     gap: var(--space-4);
     padding: 0 max(var(--space-4), env(safe-area-inset-left));
 }
+.header-search-container { width: min(360px, 100%); flex: 1 1 260px; }
+.header-search-container .deals-search { min-height: 44px; border-color: var(--border-subtle); background: var(--surface-2); }
+.header-search-container .deals-search:hover { border-color: var(--border-strong); }
+.header-search-container .deals-search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.header.shrink .header-search-container { max-width: 300px; }
+.header.shrink .header-search-container .deals-search { min-height: 38px; }
 .logo-section { display: flex; align-items: center; gap: var(--space-2); min-width: fit-content; }
 .logo-icon { color: var(--accent); font-size: 1.8rem; }
 .logo-text h1 { margin: 0; color: var(--text-heading); font-size: 1.65rem; }
@@ -334,7 +340,7 @@ button:active { transform: translateY(1px); }
 .empty-state p, .loading-deals p { margin: var(--space-1) 0; }
 .empty-state .subtext { color: var(--text-muted); font-size: .9rem; }
 
-.deals-controls { display: grid; grid-template-columns: 1fr auto; gap: var(--space-3); margin-bottom: var(--space-4); }
+.deals-controls { display: flex; justify-content: flex-end; gap: var(--space-3); margin-bottom: var(--space-4); }
 .deals-search-container { position: relative; }
 .deals-search { display: flex; align-items: center; gap: var(--space-2); min-height: 50px; padding: 8px 12px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: var(--surface-2); color: var(--text-muted); transition: border-color var(--transition), box-shadow var(--transition); }
 .deals-search:focus-within { border-color: var(--border-accent); box-shadow: 0 0 0 3px var(--accent-soft); }
@@ -467,15 +473,20 @@ button:active { transform: translateY(1px); }
     html { font-size: 14px; }
     :root { --header-height: 60px; }
     .main-content { padding: calc(var(--header-height) + var(--space-3)) max(var(--space-3), env(safe-area-inset-left)) var(--space-3) max(var(--space-3), env(safe-area-inset-right)); }
-    .header-content { padding: 0 max(var(--space-2), env(safe-area-inset-left)); }
+    .header-content { padding: 0 max(var(--space-2), env(safe-area-inset-left)); gap: var(--space-2); }
     .header.shrink { height: 52px; }
     .logo-text h1, .tagline, .nav-label { display: none; }
     .logo-icon { font-size: 1.5rem; }
+    .header-search-container { min-width: 110px; flex-basis: 110px; }
+    .header-search-container .deals-search { min-height: 40px; padding: 6px 8px; }
+    .header-search-container #gameSearchInput { font-size: .85rem; }
+    .header-search-container .search-clear { min-height: 30px; padding: 4px 6px; }
+    .header.shrink .header-search-container { max-width: none; }
     .header-nav { gap: var(--space-1); overflow-x: auto; flex-wrap: nowrap; }
-    .nav-btn { min-width: 44px; padding: 6px 9px; }
+    .nav-btn { min-width: 40px; padding: 6px 7px; }
     .section { padding: var(--space-3); margin-bottom: var(--space-3); border-radius: var(--radius-md); }
     h1 { font-size: 1.75rem; } h2 { font-size: 1.5rem; } h3 { font-size: 1.2rem; }
-    .deals-controls { grid-template-columns: 1fr; }
+    .deals-controls { justify-content: stretch; }
     .deals-filter { width: 100%; }
     #dealsSort { flex: 1; }
     .deal-prices { grid-template-columns: 1fr; }

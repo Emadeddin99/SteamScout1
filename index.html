@@ -32,6 +32,16 @@
                         <p class="tagline">Calculate • Browse • Save</p>
                     </div>
                 </div>
+                <div class="deals-search-container header-search-container">
+                    <div class="deals-search">
+                        <i class="fas fa-search"></i>
+                        <input type="text" id="gameSearchInput" placeholder="Search all games..." autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="searchSuggestions">
+                        <button id="searchClearBtn" class="search-clear" onclick="clearGameSearch()" title="Clear">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                    <div id="searchSuggestions" class="search-suggestions" role="listbox" aria-label="Game search results"></div>
+                </div>
                 <nav class="header-nav">
                     <button class="nav-btn" onclick="scrollToSection('calculator')" title="Go to calculator">
                         <i class="fas fa-calculator"></i>
@@ -217,16 +227,6 @@
                 </div>
 
                 <div class="deals-controls">
-                    <div class="deals-search-container">
-                        <div class="deals-search">
-                            <i class="fas fa-search"></i>
-                            <input type="text" id="gameSearchInput" placeholder="Search all games..." autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="searchSuggestions">
-                            <button id="searchClearBtn" class="search-clear" onclick="clearGameSearch()" title="Clear">
-                                <i class="fas fa-times"></i>
-                            </button>
-                        </div>
-                        <div id="searchSuggestions" class="search-suggestions" role="listbox" aria-label="Game search results"></div>
-                    </div>
                     <div class="deals-filter">
                         <label class="sr-only" for="dealsSort">Sort deals</label>
                         <select id="dealsSort">
