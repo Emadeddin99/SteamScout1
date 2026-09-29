@@ -279,7 +279,7 @@ button, select { cursor: pointer; }
 }
 .apply-btn, .sample-data-btn { width: 100%; padding: 10px var(--space-3); }
 .sample-data-btn { margin-top: var(--space-2); background: transparent; color: var(--accent); }
-.apply-btn:hover, .sample-data-btn:hover, .deals-btn:hover, .refresh-btn:hover { background: var(--accent-strong); border-color: var(--accent-strong); transform: translateY(-1px); box-shadow: var(--shadow-2); }
+.apply-btn:hover, .sample-data-btn:hover, .deals-btn:hover { background: var(--accent-strong); border-color: var(--accent-strong); transform: translateY(-1px); box-shadow: var(--shadow-2); }
 button:active { transform: translateY(1px); }
 
 .tax-display { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-3); }
@@ -356,8 +356,9 @@ button:active { transform: translateY(1px); }
 #dealsSearchInput:disabled { opacity: .65; }
 #dealsSort { min-height: 44px; padding: 8px 12px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: var(--surface-2); color: var(--text-body); }
 #dealsSort:hover, #dealsSort:focus { border-color: var(--border-accent); outline: none; }
-.refresh-btn { min-width: 44px; padding: 8px 12px; }
-.deals-grid { display: grid; grid-template-columns: 1fr; gap: var(--space-4); }
+.refresh-btn { min-width: 44px; padding: 8px 12px; border-color: var(--border-strong); background: var(--surface-2); color: var(--text-body); }
+.refresh-btn:hover { border-color: var(--border-strong); background: var(--surface-3); color: var(--text-heading); transform: translateY(-1px); box-shadow: var(--shadow-1); }
+.deals-grid { min-width: 0; max-height: min(720px, 70vh); padding: 4px; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; display: grid; grid-template-columns: 1fr; align-content: start; gap: var(--space-4); }
 .deals-grid > .loading-deals, .deals-grid > .empty-state, .history-grid > .empty-state { grid-column: 1 / -1; width: 100%; }
 
 .deal-card, .history-card-item { height: 100%; overflow: hidden; border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); background: var(--surface-1); box-shadow: var(--shadow-1); transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease); }
