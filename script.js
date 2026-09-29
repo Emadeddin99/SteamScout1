@@ -43,9 +43,11 @@ document.addEventListener('DOMContentLoaded', function() {
     document.body.classList.toggle('light-mode', !darkMode);
     updateDarkModeButton();
     
+    document.getElementById('gameCount').value = '1';
     updateGameFields();
     loadHistory();
     setupEventListeners();
+    setupExitCalculationHandling();
     initializeTaxPresets();
     calculateTotal();
     initializeTotalAmountFit();
@@ -56,6 +58,48 @@ document.addEventListener('DOMContentLoaded', function() {
     updateTaxDisplay();
     updateTotalGamesCount();
 });
+
+function setupExitCalculationHandling() {
+    window.addEventListener('beforeunload', function(event) {
+        calculateTotal();
+        if (!hasUnsavedCurrentCalculation()) return;
+
+        event.preventDefault();
+        event.returnValue = '';
+    });
+
+    window.addEventListener('pagehide', function() {
+        calculateTotal();
+        if (hasUnsavedCurrentCalculation()) saveToHistory(true);
+    });
+
+    window.addEventListener('pageshow', function(event) {
+        if (!event.persisted) return;
+
+        document.getElementById('gameCount').value = '1';
+        updateGameFields();
+    });
+}
+
+function getCalculationSignature(calculation) {
+    const gamePrices = (calculation.gamePrices || []).map(game => ({
+        index: Number(game.index),
+        price: Number(game.price).toFixed(2),
+        name: (game.name || '').trim()
+    })).sort((first, second) => first.index - second.index);
+
+    return JSON.stringify({
+        taxRate: Number(calculation.taxRate),
+        gamePrices
+    });
+}
+
+function hasUnsavedCurrentCalculation() {
+    if (!currentCalculation || currentCalculation.total <= 0) return false;
+
+    const currentSignature = getCalculationSignature(currentCalculation);
+    return !calculationHistory.some(item => getCalculationSignature(item) === currentSignature);
+}
 
 window.addEventListener('storage', function(event) {
     if (event.key !== 'darkMode') return;
@@ -521,7 +565,7 @@ function updatePerGameBreakdown() {
     breakdownContainer.innerHTML = html;
 }
 
-function saveToHistory() {
+function saveToHistory(silent = false) {
     if (!currentCalculation || currentCalculation.total === 0) {
         showNotification("Please enter some game prices first!", "warning");
         return;
@@ -569,7 +613,7 @@ function saveToHistory() {
     localStorage.setItem('steamCalculatorHistory', JSON.stringify(calculationHistory));
     loadHistory();
     
-    showNotification("Calculation saved to history!", "success");
+    if (!silent) showNotification("Calculation saved to history!", "success");
 }
 
 // Clean up expired cache entries (older than 7 days)
