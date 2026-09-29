@@ -5,7 +5,7 @@
 let calculationHistory = JSON.parse(localStorage.getItem('steamCalculatorHistory')) || [];
 let currentCalculation = null;
 let autoCalculateTimeout = null;
-let darkMode = localStorage.getItem('darkMode') === 'true';
+let darkMode = localStorage.getItem('darkMode') !== 'false';
 let deals = []; // Initialize deals array to prevent ReferenceError
 
 // Deals variables
@@ -31,10 +31,7 @@ const dealsPerPage = 20;
 
 // Initialize the calculator
 document.addEventListener('DOMContentLoaded', function() {
-    // Apply dark mode if enabled
-    if (darkMode) {
-        document.body.classList.add('dark-mode');
-    }
+    document.body.classList.toggle('light-mode', !darkMode);
     
     updateGameFields();
     loadHistory();
@@ -448,10 +445,10 @@ function saveToHistory() {
         expiry: Date.now() + (7 * 24 * 60 * 60 * 1000) // 7 days from now
     };
     
-    // Save to sessionStorage (browser cache)
-    const calculationCache = JSON.parse(sessionStorage.getItem('calculationCache') || '{}');
+    // Persist restore data across reloads and tabs.
+    const calculationCache = JSON.parse(localStorage.getItem('calculationCache') || '{}');
     calculationCache[uniqueId] = cacheData;
-    sessionStorage.setItem('calculationCache', JSON.stringify(calculationCache));
+    localStorage.setItem('calculationCache', JSON.stringify(calculationCache));
     
     // Clean up expired cache entries
     cleanupExpiredCache();
@@ -471,7 +468,7 @@ function saveToHistory() {
 
 // Clean up expired cache entries (older than 7 days)
 function cleanupExpiredCache() {
-    const calculationCache = JSON.parse(sessionStorage.getItem('calculationCache') || '{}');
+    const calculationCache = JSON.parse(localStorage.getItem('calculationCache') || '{}');
     const now = Date.now();
     let cleaned = false;
     
@@ -483,7 +480,7 @@ function cleanupExpiredCache() {
     }
     
     if (cleaned) {
-        sessionStorage.setItem('calculationCache', JSON.stringify(calculationCache));
+        localStorage.setItem('calculationCache', JSON.stringify(calculationCache));
     }
 }
 
@@ -563,7 +560,7 @@ function restoreFromHistory(itemId) {
     }
     
     // Try to get cached price data first
-    const calculationCache = JSON.parse(sessionStorage.getItem('calculationCache') || '{}');
+    const calculationCache = JSON.parse(localStorage.getItem('calculationCache') || '{}');
     const cachedData = calculationCache[itemId];
     
     // Check if cache is still valid (not expired)
@@ -652,9 +649,9 @@ function deleteHistoryItem(itemId) {
     localStorage.setItem('steamCalculatorHistory', JSON.stringify(calculationHistory));
     
     // Also delete from cache
-    const calculationCache = JSON.parse(sessionStorage.getItem('calculationCache') || '{}');
+    const calculationCache = JSON.parse(localStorage.getItem('calculationCache') || '{}');
     delete calculationCache[itemId];
-    sessionStorage.setItem('calculationCache', JSON.stringify(calculationCache));
+    localStorage.setItem('calculationCache', JSON.stringify(calculationCache));
     
     loadHistory();
     showNotification("Calculation deleted", "info");
@@ -768,7 +765,7 @@ function updateDarkModeButton() {
 
 function toggleDarkMode() {
     darkMode = !darkMode;
-    document.body.classList.toggle('dark-mode');
+    document.body.classList.toggle('light-mode', !darkMode);
     localStorage.setItem('darkMode', darkMode);
     
     updateDarkModeButton();

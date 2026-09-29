@@ -1714,6 +1714,8 @@ a:hover {
     display: grid;
     grid-template-columns: 1fr;
     gap: 24px;
+    max-height: min(70vh, 900px);
+    overflow-y: auto;
 }
 
 @media (min-width: 768px) {
