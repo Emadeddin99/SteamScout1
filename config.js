@@ -1,21 +1,16 @@
-// config.js - API Configuration for GitHub Pages Deployment
-// Only using APIs that actually work from a browser without authentication
+// config.js - Client-side application configuration.
+// API keys belong in Vercel/serverless environment variables, never in this file.
 
 const API_CONFIG = {
-    // RAWG Video Games Database API (works with API key)
+    // API routes are same-origin serverless proxies.
     RAWG_API_KEY: '',
-    RAWG_GAMES_URL: 'https://api.rawg.io/api/games',
-    
-    // CheapShark API - REAL Steam/GOG/Epic deals (NO AUTH NEEDED)
-    CHEAPSHARK_API_BASE: 'https://www.cheapshark.com/api/1.0',
-    CHEAPSHARK_DEALS_URL: 'https://www.cheapshark.com/api/1.0/deals',
-    
-    // REMOVED: Epic/GOG public endpoints (we're focusing on Steam only)
-    // REMOVED: IsThereAnyDeal (requires OAuth - use server-side ITAD integration if needed)
-    // REMOVED: CORS proxy (unreliable, silently fails) 
+    ITAD_API_KEY: '',
+    RAWG_GAMES_URL: '/api/rawg',
+    DEALS_URL: '/api/deals',
+    STEAM_SEARCH_URL: '/api/steam-search'
 };
 
-// Direct fetch - no proxy needed for these APIs
+// Legacy helper retained for compatibility with older saved integrations.
 async function directFetch(url, retries = 2) {
     const headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Game Price Calculator',
@@ -73,8 +68,8 @@ class Config {
             // Application Settings
             appName: 'Steam Price Calculator',
             appVersion: '2.3',
-            environment: 'github-pages',
-            deploymentMode: 'static',
+            environment: 'vercel',
+            deploymentMode: 'serverless',
             
             // Features
             enableDeals: true,

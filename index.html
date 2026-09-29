@@ -5,9 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SteamScout - Steam Price Calculator & Deal Finder</title>
     <meta name="description" content="Calculate your Steam game purchases with automatic tax calculation, browse real-time deals, and track your history.">
+    <meta name="theme-color" content="#0a0e27">
+    <meta property="og:title" content="SteamScout - Steam Price Calculator & Deal Finder">
+    <meta property="og:description" content="Calculate Steam purchases and browse current game deals.">
+    <meta property="og:type" content="website">
+    <meta property="og:image" content="/icon.png">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="styles.css">
-    <link rel="icon" type="image/png" href="assets/logo.png">
+    <link rel="icon" type="image/png" href="icon.png">
+    <link rel="apple-touch-icon" href="icon.png">
 </head>
 <body>
     <!-- Configuration Module -->
@@ -71,6 +77,10 @@
                         <button class="setting-btn" onclick="printSummary()">
                             <i class="fas fa-print"></i>
                             Print Summary
+                        </button>
+                        <button class="setting-btn" type="button" onclick="toggleDarkMode()" aria-label="Toggle dark mode">
+                            <i class="fas fa-moon"></i>
+                            <span>Dark Mode</span>
                         </button>
                     </div>
                     <div class="settings-group">
@@ -218,7 +228,8 @@
                         <div id="searchSuggestions" class="search-suggestions" role="listbox" aria-label="Game search results"></div>
                     </div>
                     <div class="deals-filter">
-                        <select id="dealsSort" onchange="sortDeals(this.value)">
+                        <label class="sr-only" for="dealsSort">Sort deals</label>
+                        <select id="dealsSort">
                             <option value="deal">Best Deals</option>
                             <option value="discount">Highest Discount</option>
                             <option value="price">Lowest Price</option>
@@ -280,7 +291,7 @@
             <div class="footer-content">
                 <div class="footer-info">
                     <i class="fas fa-lock"></i>
-                    <span>No data sent to server • All calculations local</span>
+                    <span>Calculations stay local • Pricing queries use secure serverless proxies</span>
                 </div>
                 <div class="footer-links">
                     <p>© 2026 SteamScout | Made by Emad Rihan</p>

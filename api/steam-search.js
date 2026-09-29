@@ -8,17 +8,7 @@ const MAX_RETRIES = 2;
 const RETRY_DELAY = 500; // ms
 
 export default async function handler(req, res) {
-    // Enable CORS
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
-    res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version');
-
-    // Handle preflight
-    if (req.method === 'OPTIONS') {
-        res.status(200).end();
-        return;
-    }
+    res.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=600');
 
     try {
         const { gameName } = req.query;
@@ -27,12 +17,8 @@ export default async function handler(req, res) {
             return res.status(400).json({ error: 'Missing gameName parameter' });
         }
 
-        console.log(`[API] Searching Steam for: ${gameName}`);
-
         // Call Steam search directly from server (works without CORS proxy)
         const steamSearchUrl = `https://steamcommunity.com/actions/SearchApps/${encodeURIComponent(gameName)}`;
-        
-        console.log(`[API] Fetching from: ${steamSearchUrl}`);
         
         const searchResponse = await fetch(steamSearchUrl, {
             headers: {
@@ -41,8 +27,7 @@ export default async function handler(req, res) {
         });
 
         if (!searchResponse.ok) {
-            console.error(`[API] Steam search returned status ${searchResponse.status}`);
-            return res.status(400).json({
+            return res.status(502).json({
                 error: `Steam API returned ${searchResponse.status}`,
                 appId: null,
                 prices: []
@@ -70,8 +55,6 @@ export default async function handler(req, res) {
         const yearMatch = gameName.match(/\((\d{4})\)/);
         const searchYear = yearMatch ? yearMatch[1] : null;
         const baseGameName = gameName.split('(')[0].trim().toLowerCase();
-
-        console.log(`[API] Searching for: "${gameName}", base: "${baseGameName}", year: ${searchYear}`);
 
         for (const result of searchData.slice(0, 15)) {
             const titleLower = result.name.toLowerCase();
@@ -102,8 +85,6 @@ export default async function handler(req, res) {
                 score = 300;
             }
 
-            console.log(`[API] Result: "${result.name}" - score: ${score}`);
-
             if (score > bestScore) {
                 bestScore = score;
                 bestMatch = result;
@@ -112,13 +93,11 @@ export default async function handler(req, res) {
 
         const appId = bestMatch.appid;
         const returnedTitle = bestMatch.name;
-        console.log(`[API] Best match: "${returnedTitle}" (appid: ${appId}, score: ${bestScore})`);
 
         // Check if the returned title is actually a good match
         // If score is low, include a warning and provide search link as fallback
         let titleMismatch = false;
         if (bestScore < 300) {
-            console.warn(`[API] Low confidence match (score: ${bestScore}) - title may not match search`);
             titleMismatch = true;
         }
 
@@ -132,8 +111,7 @@ export default async function handler(req, res) {
         });
 
         if (!detailResponse.ok) {
-            console.error(`[API] Steam details returned status ${detailResponse.status}`);
-            return res.status(400).json({
+            return res.status(502).json({
                 error: `Steam details API returned ${detailResponse.status}`,
                 appId,
                 prices: []
@@ -142,11 +120,8 @@ export default async function handler(req, res) {
 
         const detailData = await detailResponse.json();
 
-        console.log(`[API] Steam response structure:`, Object.keys(detailData || {}));
-
         if (!detailData || !detailData[appId]?.success) {
-            console.log(`[API] Could not fetch details for app ID ${appId}`);
-            return res.status(400).json({
+            return res.status(502).json({
                 error: `Could not fetch details for app ID ${appId}`,
                 appId,
                 prices: []
@@ -154,11 +129,8 @@ export default async function handler(req, res) {
         }
 
         const appData = detailData[appId].data;
-        console.log(`[API] App data keys:`, Object.keys(appData || {}).slice(0, 20));
-
         // Extract pricing information
         if (!appData.price_overview) {
-            console.log(`[API] No pricing data available for ${gameName}`);
             return res.status(200).json({
                 appId,
                 title: gameName,
@@ -181,8 +153,6 @@ export default async function handler(req, res) {
         const initialPrice = pricing.initial / 100;
         const discount = pricing.discount || 0;
 
-        console.log(`[API] Price found: $${finalPrice} (original: $${initialPrice})`);
-
         const prices = [{
             shop: { name: 'Steam' },
             price: finalPrice,
@@ -203,8 +173,8 @@ export default async function handler(req, res) {
         });
 
     } catch (error) {
-        console.error('[API] Steam search error:', error);
-        return res.status(500).json({
+        console.error('[API] Steam search error:', error.message);
+        return res.status(502).json({
             error: error.message || 'Steam search failed',
             appId: null,
             prices: []

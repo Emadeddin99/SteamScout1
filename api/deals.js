@@ -1,15 +1,7 @@
-const DEALS_PER_PAGE = 21;
+const DEALS_PER_PAGE = 20;
 
 export default async function handler(req, res) {
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Accept, Content-Type');
-
-    if (req.method === 'OPTIONS') {
-        res.status(200).end();
-        return;
-    }
+    res.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=600');
 
     const requestedPage = Number.parseInt(req.query?.page, 10) || 1;
     const page = Math.max(1, requestedPage);
@@ -39,7 +31,7 @@ export default async function handler(req, res) {
             timestamp: new Date().toISOString()
         });
     } catch (error) {
-        console.error('[API] Deals page fetch failed:', error);
+        console.error('[API] Deals page fetch failed:', error.message);
         res.status(502).json({
             success: false,
             error: 'Unable to load this page. Please try again.',

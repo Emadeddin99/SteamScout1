@@ -1,4 +1,5 @@
 export default async function handler(req, res) {
+    res.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=600');
     const apiKey = process.env.RAWG_API_KEY;
 
     if (!apiKey) {
