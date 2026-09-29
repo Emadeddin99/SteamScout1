@@ -167,6 +167,10 @@ async function fetchCheapSharkDealsPage(page, sort, pageSize) {
         });
 
         if (!response.ok) {
+            const errorBody = await response.text();
+            if (response.status === 400 && /Too Many Results/i.test(errorBody)) {
+                return { deals: [], hasMore: false };
+            }
             throw new Error(`CheapShark returned ${response.status}`);
         }
 
