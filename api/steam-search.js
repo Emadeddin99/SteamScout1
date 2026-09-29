@@ -36,7 +36,7 @@ export default async function handler(req, res) {
         
         const searchResponse = await fetch(steamSearchUrl, {
             headers: {
-                'User-Agent': 'SteamScout/1.0'
+                'User-Agent': 'SteamHunt/1.0'
             }
         });
 
@@ -127,7 +127,7 @@ export default async function handler(req, res) {
 
         const detailResponse = await fetch(steamDetailsUrl, {
             headers: {
-                'User-Agent': 'SteamScout/1.0'
+                'User-Agent': 'SteamHunt/1.0'
             }
         });
 

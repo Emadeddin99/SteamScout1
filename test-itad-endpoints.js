@@ -10,7 +10,7 @@ async function testITAD() {
     
     const response = await fetch(url, {
       headers: {
-        'User-Agent': 'SteamScout/1.0',
+        'User-Agent': 'SteamHunt/1.0',
         'Accept': 'application/json'
       }
     });
