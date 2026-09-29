@@ -358,7 +358,7 @@ button:active { transform: translateY(1px); }
 #dealsSort:hover, #dealsSort:focus { border-color: var(--border-accent); outline: none; }
 .refresh-btn { min-width: 44px; padding: 8px 12px; border-color: var(--border-strong); background: var(--surface-2); color: var(--text-body); }
 .refresh-btn:hover { border-color: var(--border-strong); background: var(--surface-3); color: var(--text-heading); transform: translateY(-1px); box-shadow: var(--shadow-1); }
-.deals-grid { min-width: 0; max-height: min(720px, 70vh); padding: 4px; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-color: var(--border-strong) var(--surface-2); scrollbar-width: thin; display: grid; grid-template-columns: 1fr; align-content: start; gap: var(--space-4); }
+.deals-grid { min-width: 0; max-height: min(720px, 70vh); padding: 4px; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-color: var(--border-strong) var(--surface-2); scrollbar-width: thin; background: var(--surface-2); display: grid; grid-template-columns: 1fr; align-content: start; gap: var(--space-4); }
 .games-grid::-webkit-scrollbar, .deals-grid::-webkit-scrollbar, .per-game-breakdown::-webkit-scrollbar { width: 12px; height: 12px; }
 .games-grid::-webkit-scrollbar-track, .deals-grid::-webkit-scrollbar-track, .per-game-breakdown::-webkit-scrollbar-track { border-radius: var(--radius-pill); background: var(--surface-2); }
 .games-grid::-webkit-scrollbar-thumb, .deals-grid::-webkit-scrollbar-thumb, .per-game-breakdown::-webkit-scrollbar-thumb { border: 3px solid var(--surface-2); border-radius: var(--radius-pill); background: var(--border-strong); }
@@ -418,7 +418,12 @@ button:active { transform: translateY(1px); }
 .history-count span { color: var(--accent); font-variant-numeric: tabular-nums; }
 .clear-history-btn { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; padding: 8px 12px; border: 1px solid var(--danger); border-radius: var(--radius-md); background: var(--danger-soft); color: var(--danger); transition: all var(--transition); }
 .clear-history-btn:hover { background: var(--danger); color: #fff; }
-.history-grid { display: grid; grid-template-columns: 1fr; gap: var(--space-4); }
+.history-grid { min-width: 0; max-height: min(720px, 70vh); overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-color: var(--border-strong) var(--surface-2); scrollbar-width: thin; background: var(--surface-2); display: grid; grid-template-columns: 1fr; align-content: start; gap: var(--space-4); }
+.history-grid::-webkit-scrollbar { width: 12px; height: 12px; }
+.history-grid::-webkit-scrollbar-track { border-radius: var(--radius-pill); background: var(--surface-2); }
+.history-grid::-webkit-scrollbar-thumb { border: 3px solid var(--surface-2); border-radius: var(--radius-pill); background: var(--border-strong); }
+.history-grid::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+.history-grid::-webkit-scrollbar-button { display: block; width: 12px; height: 12px; background-color: var(--surface-2); color: var(--accent); }
 .history-card-item { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4); animation: fadeInUp .4s var(--ease) both; }
 .history-timestamp { display: flex; align-items: center; gap: var(--space-2); padding-bottom: var(--space-2); border-bottom: 1px solid var(--border-subtle); color: var(--text-muted); font-size: .85rem; }
 .history-timestamp i { color: var(--accent); }

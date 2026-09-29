@@ -11,7 +11,7 @@ try {
 }
 let currentCalculation = null;
 let autoCalculateTimeout = null;
-let darkMode = localStorage.getItem('darkMode') === 'true';
+let darkMode = localStorage.getItem('darkMode') !== 'false';
 let deals = []; // Initialize deals array to prevent ReferenceError
 
 // Deals variables
@@ -55,6 +55,14 @@ document.addEventListener('DOMContentLoaded', function() {
     // Update current tax display
     updateTaxDisplay();
     updateTotalGamesCount();
+});
+
+window.addEventListener('storage', function(event) {
+    if (event.key !== 'darkMode') return;
+
+    darkMode = event.newValue !== 'false';
+    document.body.classList.toggle('light-mode', !darkMode);
+    updateDarkModeButton();
 });
 
 function setupEventListeners() {
