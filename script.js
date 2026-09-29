@@ -118,6 +118,16 @@ function setupEventListeners() {
     });
 }
 
+function updateTaxDisplay() {
+    const taxRate = document.getElementById('taxRateSlider').value;
+    document.getElementById('taxRateDisplay').textContent = `${taxRate}%`;
+}
+
+function updateTotalGamesCount() {
+    const count = parseInt(document.getElementById('gameCount').value) || 1;
+    document.getElementById('totalGames').textContent = `Total: ${count} game${count !== 1 ? 's' : ''}`;
+}
+
 function triggerAutoCalculate() {
     if (autoCalculateTimeout) {
         clearTimeout(autoCalculateTimeout);
