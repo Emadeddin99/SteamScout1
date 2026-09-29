@@ -230,12 +230,22 @@
                 </div>
 
                 <div id="gameLookupResult" class="game-lookup-result" aria-live="polite"></div>
+                <div id="dealsPageStatus" class="deals-page-status" role="status" aria-live="polite" hidden></div>
                 <div id="dealsList" class="deals-grid">
                     <div class="loading-deals">
                         <div class="spinner"></div>
                         <p>Loading deals...</p>
                     </div>
                 </div>
+                <nav id="dealsPagination" class="pagination deals-pagination" aria-label="Deals pages">
+                    <button id="dealsPreviousPage" class="pagination-btn" type="button" onclick="goToPage(-1)" disabled>
+                        <i class="fas fa-chevron-left"></i> Previous
+                    </button>
+                    <span id="dealsPageIndicator" class="pagination-info" aria-live="polite">Page 1</span>
+                    <button id="dealsNextPage" class="pagination-btn" type="button" onclick="goToPage(1)" disabled>
+                        Next <i class="fas fa-chevron-right"></i>
+                    </button>
+                </nav>
             </section>
 
             <!-- History Section -->

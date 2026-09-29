@@ -10,15 +10,12 @@ let deals = []; // Initialize deals array to prevent ReferenceError
 
 // Deals variables
 let currentDeals = [];
-let displayedDeals = []; // Track currently displayed deals (for pagination)
 let dealsLoading = false;
-
-// Cache for deals data
-let dealsCache = {
-    data: [],
-    timestamp: 0,
-    ttl: 3600000 // 1 hour cache
-};
+let dealsHasMore = false;
+let currentDealsSort = 'discount';
+const dealsPageCache = new Map();
+const dealsPageCacheTtl = 5 * 60 * 1000;
+let failedDealsRequest = null;
 
 // Search cache
 let gameSearchCache = [];
@@ -26,9 +23,8 @@ let searchTimeout = null;
 let currentGameSuggestions = []; // Store current suggestions for Enter key display
 let activeGameSuggestionIndex = -1;
 
-// Pagination
 let currentPage = 1;
-const dealsPerPage = 12;
+const dealsPerPage = 20;
 
 
 
@@ -1029,15 +1025,8 @@ function initializeDealsFilters() {
             this.classList.add('active');
             const platform = this.dataset.platform;
             
-            // If deals are already loaded, just apply the filter
-            if (currentDeals.length > 0 && !dealsLoading) {
-                filterDeals(platform);
-            } else if (!dealsLoading) {
-                // If deals haven't loaded yet, load them
-                loadDeals(true);
-            } else {
-                showNotification("Already loading deals...", "warning");
-            }
+            if (!dealsLoading) loadDeals(1, true);
+            else showNotification("Already loading deals...", "warning");
         });
     });
     
@@ -1688,169 +1677,155 @@ function clearGameSearch() {
 }
 
 // Load deals with real API
-async function loadDeals(forceRefresh = false) {
+async function loadDeals(page = 1, forceRefresh = false, requestedSort = null) {
     if (dealsLoading) return;
-    
+
+    const requestedPage = Math.max(1, Number.parseInt(page, 10) || 1);
+    const sort = requestedSort || document.getElementById('dealsSort').value || currentDealsSort;
+    const cacheKey = `${sort}:${requestedPage}`;
+    const cachedPage = dealsPageCache.get(cacheKey);
+
+    if (!forceRefresh && cachedPage && Date.now() - cachedPage.timestamp < dealsPageCacheTtl) {
+        currentPage = requestedPage;
+        currentDealsSort = sort;
+        currentDeals = cachedPage.deals;
+        dealsHasMore = cachedPage.hasMore;
+        failedDealsRequest = null;
+        displayDeals(currentDeals);
+        setDealsPageStatus('');
+        updateDealsPaginationControls();
+        return;
+    }
+
     dealsLoading = true;
+    updateDealsPaginationControls();
+    setDealsPageStatus(`Loading page ${requestedPage}...`);
+
     const dealsList = document.getElementById('dealsList');
-    dealsList.innerHTML = `
-        <div class="loading-deals">
-            <div class="spinner"></div>
-            <p>Loading current deals...</p>
-        </div>
-    `;
-    
+    if (currentDeals.length === 0) {
+        dealsList.innerHTML = '<div class="loading-deals"><div class="spinner"></div><p>Loading deals...</p></div>';
+    }
+
     try {
-        // Check cache first
-        const now = Date.now();
-        if (!forceRefresh && dealsCache.data.length > 0 && 
-            (now - dealsCache.timestamp) < dealsCache.ttl) {
-            currentDeals = dealsCache.data;
-            displayDeals(currentDeals);
-            sortDeals(document.getElementById('dealsSort').value);
-            showNotification("Deals loaded from cache!", "success");
+        const result = await fetchDealsWithCredentials(requestedPage, sort);
+
+        if (requestedPage > 1 && result.deals.length === 0) {
+            dealsHasMore = false;
+            setDealsPageStatus('No more deals are available.');
+            updateDealsPaginationControls();
             return;
         }
-        
-        console.log('Fetching fresh deals data...');
-        
-        // Try to use real API with your credentials
-        let deals = await fetchDealsWithCredentials();
-        
-        // If API fails, fall back to sample data
-        if (!deals || deals.length === 0) {
-            console.log('API failed, using sample data');
-            deals = await loadSampleDeals();
-        }
-        
-        // Remove duplicate deals and keep the best discount
-        deals = dedupeDeals(deals);
-        console.log(`Deduped deals: ${deals.length} unique deals after removing duplicates`);
-        
-        // Filter out fake/stale discounts - ensure actual price is less than original
-        deals = deals.filter(d => {
-            const salePrice = d.price || 0;
-            const normalPrice = d.originalPrice || d.normalPrice || 0;
-            const discount = d.discountPercent || d.discount || 0;
-            
-            // Keep deals where: price < original AND discount > 0
-            // Also filter out absurdly high prices (max $1000)
-            return salePrice < normalPrice && discount > 0 && salePrice < 1000 && normalPrice < 1000;
-        });
-        console.log(`Filtered deals: ${deals.length} deals after removing fake discounts and invalid prices`);
-        
-        // Cache the results
-        currentDeals = deals;
-        dealsCache = {
-            data: deals,
-            timestamp: now,
-            ttl: 3600000
-        };
-        
-        displayDeals(deals);
-        
-        // Reapply current filter after displaying deals
-        const activeFilterBtn = document.querySelector('.deals-filter-btn.active');
-        if (activeFilterBtn) {
-            const platform = activeFilterBtn.dataset.platform;
-            filterDeals(platform);
-        }
-        
-        sortDeals(document.getElementById('dealsSort').value);
-        
-        showNotification(`Loaded ${deals.length} current deals!`, "success");
-        
+
+        currentPage = requestedPage;
+        currentDealsSort = sort;
+        currentDeals = result.deals;
+        dealsHasMore = result.hasMore;
+        failedDealsRequest = null;
+        cacheDealsPage(cacheKey, currentDeals, dealsHasMore);
+        displayDeals(currentDeals);
+        setDealsPageStatus('');
     } catch (error) {
         console.error('Error loading deals:', error);
-        dealsList.innerHTML = `
-            <div class="empty-history">
-                <i class="fas fa-exclamation-triangle"></i>
-                <p>Failed to load deals</p>
-                <p class="subtext">${error.message || 'Please try again later'}</p>
-            </div>
-        `;
-        showNotification("Failed to load deals", "danger");
+        failedDealsRequest = { page: requestedPage, sort };
+        document.getElementById('dealsSort').value = currentDealsSort;
+        setDealsPageStatus('Unable to load this page. Please try again.', true);
+        if (currentDeals.length === 0) {
+            dealsList.innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-triangle"></i><p>Deals could not be loaded.</p></div>';
+        }
     } finally {
         dealsLoading = false;
+        updateDealsPaginationControls();
     }
 }
 
 // Fetch real deals from Steam, Epic Games using serverless API (CORS-safe)
-async function fetchDealsWithCredentials() {
-    try {
-        console.log('📡 Fetching deals via serverless API...');
+async function fetchDealsWithCredentials(page, sort) {
+    const params = new URLSearchParams({
+        page: String(page),
+        limit: String(dealsPerPage),
+        sort
+    });
+    const response = await fetch(`/api/deals?${params}`);
+    const apiResponse = await response.json();
 
-        const response = await fetch('/api/deals');
-
-        if (!response.ok) {
-            throw new Error(`API returned ${response.status}`);
-        }
-
-        const apiResponse = await response.json();
-
-        if (!apiResponse.success) {
-            throw new Error(apiResponse.error || 'API returned error');
-        }
-
-        console.log(`✅ Loaded ${apiResponse.count} deals`);
-
-        if (!apiResponse.deals || apiResponse.deals.length === 0) {
-            console.log('⚠️ No deals available, showing sample deals');
-            showNotification(
-                'No deals available at the moment',
-                'warning'
-            );
-            return [];
-        }
-
-        // Transform API response to client-side format
-        return apiResponse.deals.map(deal => {
-            // Ensure prices are in dollars, not cents
-            // If price > 100, it's likely in cents (e.g., 4990 cents = $49.90)
-            let salePrice = parseFloat(deal.salePrice) || 0;
-            let normalPrice = parseFloat(deal.normalPrice) || 0;
-            
-            if (salePrice > 100) {
-                salePrice = salePrice / 100;
-            }
-            if (normalPrice > 100) {
-                normalPrice = normalPrice / 100;
-            }
-            
-            return {
-                // Normalized from API
-                title: deal.title,
-                price: salePrice,
-                originalPrice: normalPrice,
-                discountPercent: deal.discount,
-                discount: deal.discount,
-                expirationDate: deal.expiry, // Unix timestamp (seconds) - will be handled by getExpiryText
-                type: deal.type,
-                store: deal.store,
-                source: deal.source,
-                
-                // Derived data
-                platform: 'steam',
-                rating: 4.5,
-                storeID: '1',
-                storeName: 'Steam',
-                
-                // IDs
-                steamAppID: deal.steamAppID,
-                appId: deal.steamAppID,
-                id: deal.steamAppID,
-                
-                // URLs - use getSteamUrl function
-                storeUrl: getSteamUrl({ steamAppID: deal.steamAppID, title: deal.title }),
-                dealUrl: getSteamUrl({ steamAppID: deal.steamAppID, title: deal.title })
-            };
-        });
-
-    } catch (error) {
-        console.error('❌ Deals fetch error:', error);
-        console.log('⚠️ Falling back to empty deals');
-        return [];
+    if (!response.ok || !apiResponse.success) {
+        throw new Error(apiResponse.error || `API returned ${response.status}`);
     }
+
+    const deals = (apiResponse.deals || []).map(deal => {
+        const salePrice = Number(deal.salePrice) || 0;
+        const normalPrice = Number(deal.normalPrice) || 0;
+        return {
+            title: deal.title,
+            price: salePrice > 100 ? salePrice / 100 : salePrice,
+            originalPrice: normalPrice > 100 ? normalPrice / 100 : normalPrice,
+            discountPercent: Number(deal.discount) || 0,
+            discount: Number(deal.discount) || 0,
+            expirationDate: deal.expiry,
+            type: deal.type,
+            store: deal.store,
+            source: deal.source,
+            platform: 'steam',
+            rating: 4.5,
+            storeID: '1',
+            storeName: deal.store || 'Steam',
+            steamAppID: deal.steamAppID,
+            appId: deal.steamAppID,
+            id: deal.steamAppID,
+            storeUrl: deal.url || getSteamUrl({ steamAppID: deal.steamAppID, title: deal.title }),
+            dealUrl: deal.url || getSteamUrl({ steamAppID: deal.steamAppID, title: deal.title })
+        };
+    });
+
+    return { deals, hasMore: apiResponse.hasMore === true };
+}
+
+function cacheDealsPage(key, pageDeals, hasMore) {
+    if (dealsPageCache.size >= 15 && !dealsPageCache.has(key)) {
+        const oldestKey = dealsPageCache.keys().next().value;
+        dealsPageCache.delete(oldestKey);
+    }
+
+    dealsPageCache.set(key, {
+        deals: pageDeals,
+        hasMore,
+        timestamp: Date.now()
+    });
+}
+
+function setDealsPageStatus(message, isError = false) {
+    const status = document.getElementById('dealsPageStatus');
+    if (!status) return;
+
+    status.hidden = !message;
+    status.classList.toggle('error', isError);
+    status.textContent = message;
+
+    if (isError) {
+        const retryButton = document.createElement('button');
+        retryButton.className = 'deals-retry-btn';
+        retryButton.type = 'button';
+        retryButton.textContent = 'Retry';
+        retryButton.addEventListener('click', retryDealsPage, { once: true });
+        status.append(' ', retryButton);
+    }
+}
+
+function retryDealsPage() {
+    if (!failedDealsRequest || dealsLoading) return;
+    loadDeals(failedDealsRequest.page, true, failedDealsRequest.sort);
+}
+
+function updateDealsPaginationControls() {
+    const previousButton = document.getElementById('dealsPreviousPage');
+    const nextButton = document.getElementById('dealsNextPage');
+    const pageIndicator = document.getElementById('dealsPageIndicator');
+    const sortSelect = document.getElementById('dealsSort');
+
+    if (previousButton) previousButton.disabled = dealsLoading || currentPage <= 1;
+    if (nextButton) nextButton.disabled = dealsLoading || !dealsHasMore;
+    if (pageIndicator) pageIndicator.textContent = `Page ${currentPage}`;
+    if (sortSelect) sortSelect.disabled = dealsLoading;
 }
 
 // Fetch Steam store featured games/deals
@@ -1983,8 +1958,8 @@ async function loadSampleDeals() {
     return [];
 }
 
-// Display deals in the list
-function displayDeals(deals, resetPage = true) {
+// Display only the deals returned for the current server page.
+function displayDeals(deals) {
     const dealsList = document.getElementById('dealsList');
     
     if (!deals || deals.length === 0) {
@@ -1997,23 +1972,8 @@ function displayDeals(deals, resetPage = true) {
         `;
         return;
     }
-    
-    // Store currently displayed deals for pagination
-    displayedDeals = deals;
-    
-    // Reset to page 1 only when displaying new deals (not when just changing pages)
-    if (resetPage) {
-        currentPage = 1;
-    }
-    
-    // Calculate pagination
-    const totalPages = Math.ceil(deals.length / dealsPerPage);
-    const startIndex = (currentPage - 1) * dealsPerPage;
-    const endIndex = startIndex + dealsPerPage;
-    const paginatedDeals = deals.slice(startIndex, endIndex);
-    
-    // Create deals HTML
-    let dealsHTML = paginatedDeals.map(deal => {
+
+    const dealsHTML = deals.map(deal => {
         return `
             <div class="deal-card">
                 <div class="deal-header">
@@ -2050,79 +2010,21 @@ function displayDeals(deals, resetPage = true) {
             </div>
         `;
     }).join('');
-    
-    // Create pagination controls
-    let paginationHTML = '';
-    if (totalPages > 1) {
-        paginationHTML = `
-            <div class="pagination">
-                <div class="pagination-info">
-                    Page <span class="current-page">${currentPage}</span> out of <span class="total-pages">${totalPages}</span>
-                </div>
-                <div class="pagination-controls">
-                    ${currentPage > 1 ? `<button class="pagination-btn" onclick="goToPage(${currentPage - 1})"><i class="fas fa-chevron-left"></i> Prev</button>` : ''}
-        `;
-        
-        // Show page numbers
-        const maxPagesToShow = 5;
-        const startPage = Math.max(1, currentPage - Math.floor(maxPagesToShow / 2));
-        const endPage = Math.min(totalPages, startPage + maxPagesToShow - 1);
-        
-        for (let i = startPage; i <= endPage; i++) {
-            if (i === currentPage) {
-                paginationHTML += `<button class="pagination-btn active">${i}</button>`;
-            } else {
-                paginationHTML += `<button class="pagination-btn" onclick="goToPage(${i})">${i}</button>`;
-            }
-        }
-        
-        paginationHTML += `
-                    ${currentPage < totalPages ? `<button class="pagination-btn" onclick="goToPage(${currentPage + 1})">Next <i class="fas fa-chevron-right"></i></button>` : ''}
-                </div>
-            </div>
-        `;
-    }
-    
-    dealsList.innerHTML = dealsHTML + paginationHTML;
+
+    dealsList.innerHTML = dealsHTML;
 }
 
-// Navigate to a specific page
-function goToPage(page) {
-    currentPage = page;
-    displayDeals(displayedDeals, false);
-    // Scroll to deals section
-    document.getElementById('dealsList').scrollIntoView({ behavior: 'smooth' });
+function goToPage(direction) {
+    if (dealsLoading || ![-1, 1].includes(direction)) return;
+    const nextPage = currentPage + direction;
+    if (nextPage < 1 || (direction > 0 && !dealsHasMore)) return;
+    loadDeals(nextPage);
 }
 
-// Sort deals based on selected option
+// Sort order is applied by the API; changing it starts at page one.
 function sortDeals(sortBy) {
-    if (!currentDeals || currentDeals.length === 0) return;
-    
-    let sortedDeals = [...currentDeals];
-    
-    switch(sortBy) {
-        case 'deal':
-            // Sort by deal rating (best deals first)
-            sortedDeals.sort((a, b) => (b.dealRating || 0) - (a.dealRating || 0));
-            break;
-        case 'discount':
-            // Sort by discount percentage (highest first)
-            sortedDeals.sort((a, b) => b.discountPercent - a.discountPercent);
-            break;
-        case 'price':
-            // Sort by actual price (lowest first)
-            sortedDeals.sort((a, b) => a.price - b.price);
-            break;
-        case 'rating':
-            // Sort by game rating (highest first)
-            sortedDeals.sort((a, b) => b.rating - a.rating);
-            break;
-        default:
-            return;
-    }
-    
-    // Update display with sorted deals
-    displayDeals(sortedDeals);
+    if (!['deal', 'discount', 'price'].includes(sortBy) || dealsLoading) return;
+    loadDeals(1);
 }
 
 // Filter giveaways by platform - show only $0 games for Steam, all deals for All
@@ -2166,8 +2068,8 @@ function refreshDeals() {
         showNotification("Already loading deals...", "warning");
         return;
     }
-    // Force refresh by bypassing cache
-    loadDeals(true);
+    dealsPageCache.delete(`${currentDealsSort}:${currentPage}`);
+    loadDeals(currentPage, true);
 }
 
 // Quick add deal price to calculator

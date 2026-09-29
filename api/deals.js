@@ -1,185 +1,115 @@
-/**
- * Deals API Handler
- * Fetches Steam deals from IsThereAnyDeal (primary) with CheapShark fallback
- * Returns normalized deal objects with consistent shape
- */
+const DEALS_PER_PAGE = 20;
 
 export default async function handler(req, res) {
-    // Enable CORS
     res.setHeader('Access-Control-Allow-Credentials', 'true');
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
-    res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Accept, Content-Type');
 
-    // Handle preflight
     if (req.method === 'OPTIONS') {
         res.status(200).end();
         return;
     }
 
+    const requestedPage = Number.parseInt(req.query?.page, 10) || 1;
+    const page = Math.max(1, requestedPage);
+    const requestedPageSize = Number.parseInt(req.query?.limit, 10) || DEALS_PER_PAGE;
+    const pageSize = Math.max(1, Math.min(DEALS_PER_PAGE, requestedPageSize));
+    const sort = ['deal', 'discount', 'price'].includes(req.query?.sort)
+        ? req.query.sort
+        : 'discount';
+
     try {
-        console.log('[API] Starting deals fetch...');
-        
-        // Fetch from both sources
-        console.log('[API] Fetching from both ITAD and CheapShark...');
-        const [itadDeals, cheapsharkDeals] = await Promise.all([
-            fetchIsThereAnyDealDeals(),
-            fetchCheapSharkDeals()
-        ]);
-        
-        console.log(`[API] ITAD: ${itadDeals.length} deals, CheapShark: ${cheapsharkDeals.length} deals`);
-        
-        // Combine deals from both sources
-        let deals = [...itadDeals, ...cheapsharkDeals];
-        console.log(`[API] Combined total: ${deals.length} deals before deduplication`);
-        
-        // Debug mode: include source counts and small samples when ?debug=1
-        const debugMode = req.query && (req.query.debug === '1' || req.query.debug === 'true');
-        const debugInfo = {
-            itadCount: Array.isArray(itadDeals) ? itadDeals.length : 0,
-            cheapsharkCount: Array.isArray(cheapsharkDeals) ? cheapsharkDeals.length : 0,
-            itadSample: (Array.isArray(itadDeals) ? itadDeals.slice(0,3) : []),
-            cheapsharkSample: (Array.isArray(cheapsharkDeals) ? cheapsharkDeals.slice(0,3) : [])
-        };
+        let pageResult = await fetchIsThereAnyDealDealsPage(page, sort, pageSize);
+        let source = 'itad';
 
-        // Deduplicate deals by steamAppID, keeping best discount
-        deals = deduplicateDeals(deals);
-        
-        // Filter invalid deals
-        deals = filterValidDeals(deals);
-        
-        // Sort by discount descending, limit to 3000
-        deals = deals
-            .sort((a, b) => b.discount - a.discount)
-            .slice(0, 3000);
-
-        console.log(`[API] ✅ Returning ${deals.length} deals`);
-
-        const responsePayload = {
-            success: true,
-            count: deals.length,
-            deals,
-            timestamp: new Date().toISOString()
-        };
-
-        if (debugMode) {
-            responsePayload.debug = debugInfo;
+        if (!pageResult) {
+            pageResult = await fetchCheapSharkDealsPage(page, sort, pageSize);
+            source = 'cheapshark';
         }
 
-        res.status(200).json(responsePayload);
-
+        res.status(200).json({
+            success: true,
+            page,
+            pageSize,
+            count: pageResult.deals.length,
+            hasMore: pageResult.hasMore,
+            source,
+            deals: pageResult.deals,
+            timestamp: new Date().toISOString()
+        });
     } catch (error) {
-        console.error('[API] Fatal error:', error);
-        res.status(500).json({
+        console.error('[API] Deals page fetch failed:', error);
+        res.status(502).json({
             success: false,
-            error: error.message || 'Failed to fetch deals',
-            count: 0,
+            error: 'Unable to load this page. Please try again.',
+            page,
+            pageSize,
             deals: []
         });
     }
 }
 
-/**
- * Fetch deals from IsThereAnyDeal API (v01 endpoint)
- * @returns {Promise<Array>} Normalized deal objects
- */
-async function fetchIsThereAnyDealDeals() {
+async function fetchIsThereAnyDealDealsPage(page, sort, pageSize) {
+    const apiKey = process.env.ITAD_API_KEY;
+    if (!apiKey) return null;
+
     try {
-        console.log('[API] Fetching from IsThereAnyDeal (v01)...');
-
-        const ITAD_API_KEY = process.env.ITAD_API_KEY;
-
-        if (!ITAD_API_KEY) {
-            console.warn('[API] ITAD_API_KEY not configured');
-            return [];
-        }
-
-        // ITAD v01 endpoint for current deals
-        const url = `https://api.isthereanydeal.com/v01/deals/list/?key=${ITAD_API_KEY}&country=US&shops=steam&limit=1500&sort=discount`;
-        
-        const response = await fetch(url, {
+        const params = new URLSearchParams({
+            country: 'US',
+            offset: String((page - 1) * pageSize),
+            limit: String(pageSize),
+            sort: sort === 'price' ? 'price' : '-cut',
+            shops: '61'
+        });
+        const response = await fetch(`https://api.isthereanydeal.com/deals/v2?${params}`, {
             headers: {
-                'User-Agent': 'SteamScout/1.0',
-                'Accept': 'application/json'
+                'ITAD-API-Key': apiKey,
+                Accept: 'application/json'
             }
         });
 
         if (!response.ok) {
-            const errorText = await response.text();
-            console.error(`[API] ITAD HTTP ${response.status}`);
-            console.error(`[API] ITAD error body:`, errorText);
-            throw new Error(`ITAD returned ${response.status}`);
+            console.warn(`[API] ITAD returned ${response.status}; using CheapShark fallback`);
+            return null;
         }
 
         const data = await response.json();
-        console.log('[API] ITAD raw response keys:', Object.keys(data).slice(0, 5), '...');
-        console.log('[API] ITAD response sample:', JSON.stringify(data).substring(0, 500));
+        if (!Array.isArray(data.list)) return null;
 
-        // Check for API errors
-        if (data.error) {
-            console.warn(`[API] ITAD error: ${data.error}`);
-            return [];
-        }
+        const deals = data.list
+            .map(normalizeITADDeal)
+            .filter(deal => deal && deal.discount > 0 && deal.salePrice < deal.normalPrice);
 
-        // v01/deals/list/ returns deals directly in the response
-        const dealsList = Array.isArray(data.deals) ? data.deals : (Array.isArray(data) ? data : []);
-
-        if (!Array.isArray(dealsList)) {
-            console.warn('[API] Invalid ITAD response format');
-            return [];
-        }
-
-        console.log(`[API] ITAD returned ${dealsList.length} deals`);
-
-        return dealsList
-            .map(deal => normalizeITADDeal(deal))
-            .filter(d => d !== null);
-
+        return { deals, hasMore: Boolean(data.hasMore) };
     } catch (error) {
-        console.error('[API] ITAD fetch error:', error.message);
-        return [];
+        console.warn('[API] ITAD fetch error; using CheapShark fallback:', error.message);
+        return null;
     }
 }
 
-/**
- * Normalize ITAD v01 deal to standard shape
- * @param {Object} deal - Raw ITAD deal object
- * @returns {Object|null} Normalized deal or null if invalid
- */
 function normalizeITADDeal(deal) {
     try {
-        // Extract Steam app ID from ITAD's app_id or id field
-        const steamAppID = deal.app_id 
-            ? parseInt(deal.app_id) 
-            : (deal.app?.id ? parseInt(deal.app.id) : null);
-        
-        const salePrice = parseFloat(deal.price_new || deal.price) || 0;
-        const normalPrice = parseFloat(deal.price_old || deal.regular) || 0;
-        
-        // Calculate discount percentage
-        let discount = 0;
-        if (normalPrice > 0) {
-            discount = Math.round(((normalPrice - salePrice) / normalPrice) * 100);
-        }
-        // Use cut field if provided
-        if (deal.cut && deal.cut > 0) {
-            discount = Math.round(deal.cut);
-        }
+        const sourceDeal = deal.deal;
+        if (!sourceDeal) return null;
 
-        // Generate store URL using helper
-        const storeUrl = getSteamUrl({ steamAppID, title: deal.title });
+        const steamAppID = Number.parseInt(deal.appid || deal.app?.id, 10) || null;
+        const steamGameId = deal.id || String(steamAppID || deal.title || '');
+        const salePrice = Number(sourceDeal.price?.amount) || 0;
+        const normalPrice = Number(sourceDeal.regular?.amount) || 0;
 
         return {
             title: deal.title || 'Unknown Game',
             steamAppID,
+            steamGameId,
             salePrice,
             normalPrice,
-            discount,
-            expiry: deal.expiry ? parseInt(deal.expiry) : null, // Unix timestamp (seconds) - preserve as-is
-            store: 'Steam',
+            discount: Number(sourceDeal.cut) || 0,
+            expiry: sourceDeal.expiry ? Math.floor(Date.parse(sourceDeal.expiry) / 1000) : null,
+            store: sourceDeal.shop?.name || 'Steam',
             type: salePrice === 0 ? 'giveaway' : 'sale',
             source: 'itad',
-            url: storeUrl
+            url: sourceDeal.url || getSteamUrl({ steamAppID, title: deal.title })
         };
     } catch (error) {
         console.warn('[API] Failed to normalize ITAD deal:', error.message);
@@ -211,135 +141,35 @@ function getSteamUrl(deal) {
  * Fetch deals from CheapShark API (fallback)
  * @returns {Promise<Array>} Normalized deal objects
  */
-async function fetchCheapSharkDeals() {
+async function fetchCheapSharkDealsPage(page, sort, pageSize) {
     try {
-        console.log('[API] Fetching from CheapShark (fallback) with retries...');
+        const sortBy = sort === 'price' ? 'Price' : sort === 'discount' ? 'Savings' : 'Deal Rating';
+        const params = new URLSearchParams({
+            storeID: '1',
+            pageNumber: String(page - 1),
+            pageSize: String(pageSize),
+            sortBy
+        });
+        const response = await fetch(`https://www.cheapshark.com/api/1.0/deals?${params}`, {
+            headers: { 'User-Agent': 'SteamScout/1.0' }
+        });
 
-        let allDeals = [];
-        const pageSize = 100;
-        const maxPages = 30; // 30 pages * 100 deals = 3000 deals
-        const maxAttemptsPerPage = 3; // retry up to 3 times per page
-        const errors = [];
-        let attempts = 0;
+        if (!response.ok) {
+            throw new Error(`CheapShark returned ${response.status}`);
+        }
 
-        // Helper: exponential backoff
-        const backoff = async (attempt) => {
-            const delay = Math.min(2000 * Math.pow(2, attempt), 15000);
-            console.log(`[API] Backoff: waiting ${delay}ms before retry`);
-            await new Promise(resolve => setTimeout(resolve, delay));
+        const rawDeals = await response.json();
+        const deals = deduplicateDeals((Array.isArray(rawDeals) ? rawDeals : [])
+            .map(normalizeCheapSharkDeal)
+            .filter(Boolean));
+
+        return {
+            deals: filterValidDeals(deals),
+            hasMore: Array.isArray(rawDeals) && rawDeals.length === pageSize
         };
-
-        for (let pageNumber = 0; pageNumber < maxPages; pageNumber++) {
-            let pageFetched = false;
-            let pageData = null;
-
-            for (let attempt = 0; attempt < maxAttemptsPerPage; attempt++) {
-                attempts++;
-                const url = `https://www.cheapshark.com/api/1.0/deals?storeID=1&pageNumber=${pageNumber}&pageSize=${pageSize}&sortBy=Deal Rating`;
-
-                try {
-                    const response = await fetch(url, {
-                        headers: {
-                            'User-Agent': 'SteamScout/1.0'
-                        },
-                        // 10s timeout simulated by AbortController if needed in future
-                    });
-
-                    if (!response.ok) {
-                        errors.push({ page: pageNumber, status: response.status });
-                        console.warn(`[API] CheapShark page ${pageNumber} returned ${response.status} (attempt ${attempt + 1})`);
-
-                        if (response.status === 429) {
-                            // Rate limited — back off and retry
-                            await backoff(attempt);
-                            continue;
-                        }
-
-                        // For other 4xx/5xx, break and stop paginating
-                        break;
-                    }
-
-                    pageData = await response.json();
-
-                    if (!Array.isArray(pageData) || pageData.length === 0) {
-                        console.log(`[API] CheapShark page ${pageNumber}: No more deals`);
-                        pageFetched = false;
-                        break; // No more deals to fetch
-                    }
-
-                    console.log(`[API] CheapShark page ${pageNumber}: ${pageData.length} deals`);
-                    allDeals = allDeals.concat(pageData);
-                    pageFetched = true;
-                    break;
-
-                } catch (err) {
-                    errors.push({ page: pageNumber, error: err.message });
-                    console.warn(`[API] CheapShark page ${pageNumber} fetch error (attempt ${attempt + 1}):`, err.message);
-                    await backoff(attempt);
-                    continue;
-                }
-            }
-
-            if (!pageFetched) {
-                // If first page fails, abort and rely on fallback
-                if (pageNumber === 0) {
-                    console.warn('[API] CheapShark first page failed after retries; aborting CheapShark fetch');
-                    break;
-                }
-                // Otherwise, stop pagination
-                break;
-            }
-
-            // small polite delay between successful requests
-            await new Promise(resolve => setTimeout(resolve, 100));
-        }
-
-        console.log(`[API] CheapShark total fetched: ${allDeals.length} deals across all pages (attempts: ${attempts})`);
-
-        try {
-            const normalized = allDeals
-                .map((deal, idx) => {
-                    try {
-                        const result = normalizeCheapSharkDeal(deal);
-                        if (!result) {
-                            console.log(`[API]   Deal ${idx}: Skipped "${deal.title}" (storeID: ${deal.storeID})`);
-                        }
-                        return result;
-                    } catch (err) {
-                        console.error(`[API]   Deal ${idx}: Error normalizing:`, err.message);
-                        return null;
-                    }
-                })
-                .filter(d => d !== null);
-
-            console.log(`[API] CheapShark normalized: ${normalized.length} valid deals`);
-
-            // If nothing was fetched from CheapShark, fall back to local sample file
-            if (normalized.length === 0) {
-                try {
-                    console.warn('[API] CheapShark returned no deals; attempting to load local sample fallback');
-                    const fs = require('fs');
-                    const path = require('path');
-                    const samplePath = path.resolve(__dirname, '../assets/sample-deals.json');
-                    const sampleRaw = fs.readFileSync(samplePath, 'utf-8');
-                    const sample = JSON.parse(sampleRaw);
-                    console.log(`[API] Loaded ${sample.length} deals from local sample fallback`);
-                    return sample;
-                } catch (err) {
-                    console.error('[API] Failed to load local sample fallback:', err.message);
-                    return [];
-                }
-            }
-
-            return normalized;
-        } catch (err) {
-            console.error('[API] Error during CheapShark mapping:', err.message);
-            return [];
-        }
-
     } catch (error) {
-        console.error('[API] CheapShark fetch error:', error.message);
-        return [];
+        console.error('[API] CheapShark fallback failed:', error.message);
+        throw error;
     }
 }
 
