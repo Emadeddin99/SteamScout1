@@ -281,11 +281,12 @@ button:active { transform: translateY(1px); }
 .tax-symbol { color: var(--accent); font-size: 1.2rem; font-weight: 700; }
 .tax-input::-webkit-outer-spin-button, .tax-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .tax-input[type=number] { appearance: textfield; -moz-appearance: textfield; }
-.tax-slider { width: 100%; height: 6px; margin: var(--space-3) 0; appearance: none; border-radius: var(--radius-pill); background: var(--border-strong); cursor: pointer; }
-.tax-slider::-webkit-slider-runnable-track { height: 6px; border-radius: var(--radius-pill); background: linear-gradient(to right, var(--accent) 0 8%, var(--border-strong) 8% 100%); }
+.tax-slider { width: 100%; height: 24px; margin: var(--space-2) 0; appearance: none; border-radius: var(--radius-pill); background: transparent; accent-color: var(--accent); cursor: pointer; }
+.tax-slider::-webkit-slider-runnable-track { width: 100%; height: 6px; border-radius: var(--radius-pill); background: var(--border-strong); }
+.tax-slider::-webkit-slider-thumb { width: 18px; height: 18px; margin-top: -6px; appearance: none; border: 3px solid var(--surface-1); border-radius: 50%; background: var(--accent); box-shadow: var(--shadow-2); }
 .tax-slider::-moz-range-progress { height: 6px; border-radius: var(--radius-pill); background: var(--accent); }
-.tax-slider::-moz-range-track { height: 6px; border-radius: var(--radius-pill); background: var(--border-strong); }
-.tax-slider::-webkit-slider-thumb, .tax-slider::-moz-range-thumb { width: 20px; height: 20px; appearance: none; border: 3px solid var(--surface-1); border-radius: 50%; background: var(--accent); box-shadow: var(--shadow-2); }
+.tax-slider::-moz-range-track { height: 6px; border: 0; border-radius: var(--radius-pill); background: var(--border-strong); }
+.tax-slider::-moz-range-thumb { width: 18px; height: 18px; border: 3px solid var(--surface-1); border-radius: 50%; background: var(--accent); box-shadow: var(--shadow-2); }
 .slider-labels { display: flex; justify-content: space-between; color: var(--text-muted); font-size: .8rem; }
 .tax-presets { display: grid; grid-template-columns: repeat(5, 1fr); margin-top: var(--space-3); }
 .preset-btn { min-height: 40px; padding: 8px; border: 1px solid var(--border-strong); border-right-width: 0; background: var(--surface-1); color: var(--text-body); font-weight: 600; transition: background var(--transition), color var(--transition), border-color var(--transition); }
