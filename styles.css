@@ -1118,6 +1118,11 @@ a:hover {
     flex-direction: column;
 }
 
+.deals-section.searching .deals-filter,
+.deals-section.searching #dealsList {
+    display: none;
+}
+
 .deals-controls {
     display: grid;
     grid-template-columns: 1fr auto;

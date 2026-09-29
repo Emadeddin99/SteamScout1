@@ -1088,9 +1088,15 @@ function initializeDealsFilters() {
 function handleGameSearch(query) {
     clearTimeout(searchTimeout);
     const suggestionsDiv = document.getElementById('searchSuggestions');
+    const resultsList = document.getElementById('gameLookupResult');
+    const isSearching = Boolean(query.trim());
+
+    document.getElementById('deals').classList.toggle('searching', isSearching);
+    resultsList.innerHTML = '';
     
-    if (!query.trim()) {
+    if (!isSearching) {
         suggestionsDiv.innerHTML = '';
+        currentGameSuggestions = [];
         return;
     }
     
@@ -1224,6 +1230,8 @@ function displayAllSuggestionsAsCards(games) {
 
 // Lookup game prices (when clicking suggestion)
 async function lookupGamePrices(gameName, gameID) {
+    document.getElementById('deals').classList.add('searching');
+
     const searchInput = document.getElementById('gameSearchInput');
     if (searchInput) {
         searchInput.value = gameName;
@@ -1631,6 +1639,7 @@ function clearGameSearch() {
     document.getElementById('searchSuggestions').innerHTML = '';
     currentGameSuggestions = [];
     document.getElementById('gameLookupResult').innerHTML = '';
+    document.getElementById('deals').classList.remove('searching');
 }
 
 // Load deals with real API
