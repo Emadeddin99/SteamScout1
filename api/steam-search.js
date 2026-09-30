@@ -51,7 +51,6 @@ export default async function handler(req, res) {
         let bestMatch = searchData[0];
         let bestScore = 0;
 
-        // Extract year if present in search query
         const yearMatch = gameName.match(/\((\d{4})\)/);
         const searchYear = yearMatch ? yearMatch[1] : null;
         const baseGameName = normalizeTitle(gameName.split('(')[0]);
@@ -61,27 +60,20 @@ export default async function handler(req, res) {
             const normalizedTitle = normalizeTitle(result.name);
             let score = 0;
 
-            // Penalize sequel titles if we're not searching for sequels
             const isSequel = /ragnar|remaster|remake|director'?s cut|edition|deluxe|goty|complete/.test(titleLower);
             const wantSequel = /ragnar|remaster|remake|director'?s cut|edition|deluxe|goty|complete/.test(gameNameLower);
             
             if (isSequel && !wantSequel) {
-                score = -100; // Penalize sequels
+                score = -100;
             }
 
             if (normalizedTitle === normalizedQuery) {
                 score = 1000;
-            }
-            // If year specified, prioritize results with that year
-            else if (searchYear && titleLower.includes(searchYear)) {
+            } else if (searchYear && titleLower.includes(searchYear)) {
                 score = 800;
-            }
-            // Starts with base game name
-            else if (normalizedTitle.startsWith(baseGameName)) {
+            } else if (normalizedTitle.startsWith(baseGameName)) {
                 score = 500;
-            }
-            // Contains base game name
-            else if (normalizedTitle.includes(baseGameName)) {
+            } else if (normalizedTitle.includes(baseGameName)) {
                 score = 300;
             }
 
@@ -94,14 +86,12 @@ export default async function handler(req, res) {
         const appId = bestMatch.appid;
         const returnedTitle = bestMatch.name;
 
-        // Check if the returned title is actually a good match
-        // If score is low, include a warning and provide search link as fallback
         let titleMismatch = false;
         if (bestScore < 300) {
             titleMismatch = true;
         }
 
-        // Get app details directly from Steam using the selected Steam app ID.
+        // Use Steam's app ID for the authoritative details and price request.
         const steamDetailsUrl = `https://store.steampowered.com/api/appdetails?appids=${appId}&cc=US`;
 
         const detailResponse = await fetch(steamDetailsUrl, {
@@ -129,16 +119,15 @@ export default async function handler(req, res) {
         }
 
         const appData = detailData[appId].data;
-        // Extract pricing information
         if (!appData.price_overview) {
             return res.status(200).json({
                 appId,
-                title: gameName,
+                title: appData.name || returnedTitle || gameName,
                 prices: [{
                     shop: { name: 'Steam' },
                     price: 0,
                     regular: 0,
-                    url: getSteamUrl({ id: appId, title: gameName }),
+                    url: getSteamUrl({ id: appId, title: appData.name || gameName }),
                     discount: 0,
                     active: 1,
                     source: 'steam',
@@ -157,7 +146,7 @@ export default async function handler(req, res) {
             shop: { name: 'Steam' },
             price: finalPrice,
             regular: initialPrice,
-            url: getSteamUrl({ id: appId, title: gameName }),
+            url: getSteamUrl({ id: appId, title: appData.name || gameName }),
             discount,
             active: 1,
             source: 'steam'
@@ -165,10 +154,10 @@ export default async function handler(req, res) {
 
         return res.status(200).json({
             appId,
-            title: appData.name || gameName,
+            title: appData.name || returnedTitle || gameName,
             prices,
             noPriceData: false,
-            titleMismatch: titleMismatch,
+            titleMismatch,
             searchFallbackUrl: `https://store.steampowered.com/search/?term=${encodeURIComponent(gameName)}`
         });
 
@@ -199,9 +188,6 @@ function normalizeTitle(title) {
         .replace(/\s+/g, ' ');
 }
 
-/**
- * Helper function to generate Steam store URLs
- */
 function getSteamUrl(data) {
     if (data.id && Number(data.id) > 0) {
         return `https://store.steampowered.com/app/${data.id}`;

@@ -5,13 +5,13 @@ SteamHunt is a browser-based Steam price calculator and deal finder. Calculation
 ## Requirements
 
 - Node.js and the Vercel CLI
-- `RAWG_API_KEY` for game search
+- `IGDB_CLIENT_ID` and `IGDB_CLIENT_SECRET` for game search
 - `ITAD_API_KEY` for deal browsing
 
 ## Local setup
 
 1. Copy `.env.example` to `.env`.
-2. Set `RAWG_API_KEY` and `ITAD_API_KEY` in `.env`.
+2. Set `IGDB_CLIENT_ID`, `IGDB_CLIENT_SECRET`, and `ITAD_API_KEY` in `.env`.
 3. Run `vercel dev`.
 4. Open the local URL printed by Vercel.
 
@@ -19,7 +19,7 @@ The app cannot run correctly by double-clicking `index.html`, because it depends
 
 ## API routes
 
-- `/api/rawg` searches the RAWG game database.
+- `/api/igdb-search` searches IGDB through a server-side Twitch app-token flow. Credentials and tokens never reach the browser.
 - `/api/steam-search` finds Steam titles and current prices.
 - `/api/deals` returns paginated Steam deals from ITAD, with a CheapShark fallback.
 
@@ -34,4 +34,4 @@ The app cannot run correctly by double-clicking `index.html`, because it depends
 
 ## Deployment
 
-Configure `RAWG_API_KEY` and `ITAD_API_KEY` in the Vercel project environment settings, then deploy the project with Vercel.
+Configure `IGDB_CLIENT_ID`, `IGDB_CLIENT_SECRET`, and `ITAD_API_KEY` in the Vercel project environment settings, then deploy the project with Vercel.

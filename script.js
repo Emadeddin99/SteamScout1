@@ -17,18 +17,26 @@ let deals = []; // Initialize deals array to prevent ReferenceError
 // Deals variables
 let currentDeals = [];
 let dealsLoading = false;
+let dealsRequestController = null;
+let dealsRequestId = 0;
+let dealsSearchTimeout = null;
 let dealsHasMore = false;
 let currentDealsSort = 'discount';
 let currentDealsSearch = '';
 const dealsPageCache = new Map();
 const dealsPageCacheTtl = 5 * 60 * 1000;
 let failedDealsRequest = null;
-const seenDealKeysByFilter = new Map();
 
-// Search cache
-let gameSearchCache = [];
+// Search cache and request state
+const gameSearchCache = new Map();
+const gameSearchCacheTtl = 60 * 1000;
+const gameSearchCacheLimit = 20;
 let searchTimeout = null;
-let dealsSearchTimeout = null;
+let gameSearchAbortController = null;
+let gameSearchRequestId = 0;
+let priceLookupAbortController = null;
+let priceLookupRequestId = 0;
+const priceLookupRequests = new Map();
 let currentGameSuggestions = []; // Store current suggestions for Enter key display
 let activeGameSuggestionIndex = -1;
 
@@ -529,11 +537,10 @@ function updatePerGameBreakdown() {
             hasGames = true;
             const gameTax = price * taxRate;
             const gameTotal = price + gameTax;
-            const gameName = (input.dataset.gameName || '').trim() || `Game ${parseInt(input.dataset.index) + 1}`;
             
             html += `
                 <div class="breakdown-item">
-                    <div class="breakdown-game-name">${escapeHtml(gameName)}</div>
+                    <div class="breakdown-game-name">Game ${parseInt(input.dataset.index) + 1}</div>
                     <div class="breakdown-values-detailed">
                         <div class="breakdown-row">
                             <span class="breakdown-label">Price:</span>
@@ -1191,6 +1198,8 @@ function initializeDealsFilters() {
     const dealsSort = document.getElementById('dealsSort');
     if (dealsSort) {
         dealsSort.addEventListener('change', function() {
+            clearTimeout(dealsSearchTimeout);
+            dealsSearchTimeout = null;
             sortDeals(this.value);
         });
     }
@@ -1199,12 +1208,23 @@ function initializeDealsFilters() {
     if (dealsSearchInput) {
         dealsSearchInput.addEventListener('input', function() {
             clearTimeout(dealsSearchTimeout);
+            if (dealsLoading) {
+                dealsRequestController?.abort();
+                dealsRequestController = null;
+                dealsLoading = false;
+                dealsRequestId++;
+                updateDealsPaginationControls();
+            }
+            failedDealsRequest = null;
+            setDealsPageStatus('');
             dealsSearchTimeout = setTimeout(() => {
+                dealsSearchTimeout = null;
                 loadDeals(1, true, null, dealsSearchInput.value);
             }, 300);
+            updateDealsPaginationControls();
         });
     }
-    
+
     // Setup game search
     const gameSearchInput = document.getElementById('gameSearchInput');
     if (gameSearchInput) {
@@ -1241,6 +1261,10 @@ function initializeDealsFilters() {
             }
 
             if (e.key === 'Escape') {
+                clearTimeout(searchTimeout);
+                gameSearchAbortController?.abort();
+                gameSearchAbortController = null;
+                gameSearchRequestId++;
                 document.getElementById('searchSuggestions').innerHTML = '';
                 currentGameSuggestions = [];
                 activeGameSuggestionIndex = -1;
@@ -1279,16 +1303,22 @@ function selectGameSuggestion(index) {
     const game = currentGameSuggestions[index];
     if (!game) return;
 
-    lookupGamePrices(game.displayTitle || game.title || game.name, game.id);
+    lookupGamePrices(game.displayTitle || game.title || game.name);
 }
 
 // Handle game search with autocomplete
 function handleGameSearch(query) {
     clearTimeout(searchTimeout);
+    gameSearchAbortController?.abort();
+    gameSearchAbortController = null;
+    gameSearchRequestId++;
+    priceLookupAbortController?.abort();
+    priceLookupRequestId++;
     const suggestionsDiv = document.getElementById('searchSuggestions');
     const resultsList = document.getElementById('gameLookupResult');
     const gameSearchInput = document.getElementById('gameSearchInput');
-    const isSearching = Boolean(query.trim());
+    const search = String(query ?? '').trim();
+    const isSearching = Boolean(search);
 
     document.getElementById('deals').classList.toggle('searching', isSearching);
     resultsList.innerHTML = '';
@@ -1302,28 +1332,42 @@ function handleGameSearch(query) {
         return;
     }
     
+    const requestId = gameSearchRequestId;
     searchTimeout = setTimeout(async () => {
+        const controller = new AbortController();
+        gameSearchAbortController = controller;
+
         try {
-            const suggestions = await fetchGameSuggestions(query);
-            displaySearchSuggestions(suggestions, query);
+            const suggestions = await fetchGameSuggestions(search, controller.signal);
+            if (requestId !== gameSearchRequestId || gameSearchInput.value.trim() !== search) return;
+            displaySearchSuggestions(suggestions, search);
         } catch (error) {
-            console.error('Search error:', error);
+            if (controller.signal.aborted || requestId !== gameSearchRequestId) return;
+            console.warn('IGDB game search failed:', error.message);
+            displaySearchSuggestionsError();
         }
     }, 300);
 }
 
-// Fetch game suggestions from RAWG API
-async function fetchGameSuggestions(query) {
-    try {
-        const response = await fetch(
-            `/api/rawg?search=${encodeURIComponent(query)}`
-        );
-        
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const data = await response.json();
-        
-        // Map RAWG response to expected format
-        return (data.results || []).map(game => ({
+async function fetchGameSuggestions(query, signal) {
+    const cacheKey = query.trim().toLowerCase();
+    const cached = gameSearchCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < gameSearchCacheTtl) {
+        gameSearchCache.delete(cacheKey);
+        gameSearchCache.set(cacheKey, cached);
+        return cached.results;
+    }
+    if (cached) gameSearchCache.delete(cacheKey);
+
+    const params = new URLSearchParams({ search: query });
+    const response = await fetch(`${API_CONFIG.IGDB_GAMES_URL}?${params}`, { signal });
+    const data = await response.json();
+
+    if (!response.ok || !Array.isArray(data.results)) {
+        throw new Error(data.error || `Game search returned ${response.status}`);
+    }
+
+    const results = data.results.map(game => ({
             id: game.id,
             title: game.name,
             displayTitle: game.name,
@@ -1331,10 +1375,28 @@ async function fetchGameSuggestions(query) {
             rating: game.rating,
             platforms: game.platforms || []
         }));
-    } catch (error) {
-        console.error('RAWG game suggestion error:', error);
-        return [];
+
+    gameSearchCache.set(cacheKey, { results, timestamp: Date.now() });
+    while (gameSearchCache.size > gameSearchCacheLimit) {
+        gameSearchCache.delete(gameSearchCache.keys().next().value);
     }
+
+    return results;
+}
+
+function displaySearchSuggestionsError() {
+    const suggestionsDiv = document.getElementById('searchSuggestions');
+    const gameSearchInput = document.getElementById('gameSearchInput');
+
+    currentGameSuggestions = [];
+    activeGameSuggestionIndex = -1;
+    gameSearchInput.setAttribute('aria-expanded', 'true');
+    suggestionsDiv.innerHTML = `
+        <div class="search-suggestion-item" role="status" style="text-align: center; color: var(--text-tertiary);">
+            <i class="fas fa-exclamation-circle"></i>
+            <p>Game search is temporarily unavailable. Please try again.</p>
+        </div>
+    `;
 }
 
 // Display search suggestions
@@ -1419,7 +1481,7 @@ function displayAllSuggestionsAsCards(games) {
                     </div>` : ''}
                     <div class="deal-info-row">
                         <span class="info-label"><i class="fas fa-info-circle"></i> Source</span>
-                        <span class="info-value">RAWG Database</span>
+                        <span class="info-value">IGDB Database</span>
                     </div>
                 </div>
                 
@@ -1439,7 +1501,36 @@ function displayAllSuggestionsAsCards(games) {
 }
 
 // Lookup game prices (when clicking suggestion)
-async function lookupGamePrices(gameName, gameID) {
+async function lookupGamePrices(gameName) {
+    const normalizedGameName = String(gameName ?? '').trim();
+    if (!normalizedGameName) return;
+
+    clearTimeout(searchTimeout);
+    gameSearchAbortController?.abort();
+    gameSearchAbortController = null;
+    gameSearchRequestId++;
+
+    const requestKey = normalizedGameName.toLowerCase();
+    const existingRequest = priceLookupRequests.get(requestKey);
+    if (existingRequest && !existingRequest.controller.signal.aborted) return existingRequest.promise;
+
+    priceLookupAbortController?.abort();
+    const controller = new AbortController();
+    priceLookupAbortController = controller;
+    const requestId = ++priceLookupRequestId;
+    const request = performGamePriceLookup(normalizedGameName, controller, requestId);
+    priceLookupRequests.set(requestKey, { promise: request, controller });
+
+    try {
+        return await request;
+    } finally {
+        if (priceLookupRequests.get(requestKey)?.promise === request) {
+            priceLookupRequests.delete(requestKey);
+        }
+    }
+}
+
+async function performGamePriceLookup(gameName, controller, requestId) {
     document.getElementById('deals').classList.add('searching');
 
     const searchInput = document.getElementById('gameSearchInput');
@@ -1459,7 +1550,7 @@ async function lookupGamePrices(gameName, gameID) {
     resultsList.innerHTML = `
         <div class="loading-deals">
             <div class="spinner"></div>
-            <p>Looking up game details and prices for "${gameName}"...</p>
+            <p>Looking up game details and prices for "${escapeHtml(gameName)}"...</p>
         </div>
     `;
     
@@ -1471,7 +1562,9 @@ async function lookupGamePrices(gameName, gameID) {
         
         try {
             // Call Steam search endpoint via backend (server can fetch Steam directly)
-            const searchResponse = await fetch(`/api/steam-search?gameName=${encodeURIComponent(gameName)}`);
+            const searchResponse = await fetch(`${API_CONFIG.STEAM_SEARCH_URL}?gameName=${encodeURIComponent(gameName)}`, {
+                signal: controller.signal
+            });
             searchData = await searchResponse.json();
             
             if (searchResponse.ok) {
@@ -1484,12 +1577,16 @@ async function lookupGamePrices(gameName, gameID) {
                 }
             }
         } catch (e) {
+            if (controller.signal.aborted || requestId !== priceLookupRequestId) return;
             console.warn('Could not fetch game prices:', e);
         }
+
+        if (controller.signal.aborted || requestId !== priceLookupRequestId) return;
         
         displayGamePricesLookup(gameName, pricesData, titleMismatch, searchData);
         
     } catch (error) {
+        if (controller.signal.aborted || requestId !== priceLookupRequestId) return;
         console.error('Price lookup error:', error);
         resultsList.innerHTML = `
             <div class="empty-history">
@@ -1508,10 +1605,12 @@ async function lookupGamePrices(gameName, gameID) {
         `;
         resultsList.querySelector('[data-add-game]')?.addEventListener('click', event => addGameManual(event.currentTarget.dataset.addGame));
     } finally {
-        resultsList.scrollIntoView({
-            behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
-            block: 'center'
-        });
+        if (!controller.signal.aborted && requestId === priceLookupRequestId) {
+            resultsList.scrollIntoView({
+                behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+                block: 'center'
+            });
+        }
     }
 }
 
@@ -1870,6 +1969,12 @@ function addGameWithPrice(gameName, price) {
 
 // Clear game search
 function clearGameSearch() {
+    clearTimeout(searchTimeout);
+    gameSearchAbortController?.abort();
+    gameSearchAbortController = null;
+    gameSearchRequestId++;
+    priceLookupAbortController?.abort();
+    priceLookupRequestId++;
     const searchInput = document.getElementById('gameSearchInput');
     if (searchInput) {
         searchInput.value = '';
@@ -1889,10 +1994,7 @@ async function loadDeals(page = 1, forceRefresh = false, requestedSort = null, r
 
     const requestedPage = Math.max(1, Number.parseInt(page, 10) || 1);
     const sort = requestedSort || document.getElementById('dealsSort').value || currentDealsSort;
-    const searchInput = document.getElementById('dealsSearchInput');
-    const search = String(requestedSearch === null ? searchInput?.value || '' : requestedSearch)
-        .trim()
-        .toLowerCase();
+    const search = String(requestedSearch ?? document.getElementById('dealsSearchInput')?.value ?? '').trim().toLowerCase();
     const cacheKey = `${sort}:${search}:${requestedPage}`;
     const cachedPage = dealsPageCache.get(cacheKey);
 
@@ -1910,6 +2012,9 @@ async function loadDeals(page = 1, forceRefresh = false, requestedSort = null, r
     }
 
     dealsLoading = true;
+    const requestId = ++dealsRequestId;
+    const controller = new AbortController();
+    dealsRequestController = controller;
     updateDealsPaginationControls();
     setDealsPageStatus(search ? `Searching deals, page ${requestedPage}...` : `Loading page ${requestedPage}...`);
 
@@ -1919,7 +2024,8 @@ async function loadDeals(page = 1, forceRefresh = false, requestedSort = null, r
     }
 
     try {
-        const result = await fetchDealsWithCredentials(requestedPage, sort, search);
+        const result = await fetchDealsWithCredentials(requestedPage, sort, search, controller.signal);
+        if (controller.signal.aborted || requestId !== dealsRequestId) return;
 
         if (requestedPage > 1 && result.deals.length === 0) {
             dealsHasMore = false;
@@ -1931,17 +2037,14 @@ async function loadDeals(page = 1, forceRefresh = false, requestedSort = null, r
         currentPage = requestedPage;
         currentDealsSort = sort;
         currentDealsSearch = search;
-        const filterKey = `${sort}:${search}`;
-        if (requestedPage === 1) {
-            seenDealKeysByFilter.set(filterKey, new Set());
-        }
-        currentDeals = removePreviouslySeenDeals(result.deals, sort, search);
+        currentDeals = result.deals;
         dealsHasMore = result.hasMore;
         failedDealsRequest = null;
         cacheDealsPage(cacheKey, currentDeals, dealsHasMore);
         displayDeals(currentDeals);
         setDealsPageStatus('');
     } catch (error) {
+        if (controller.signal.aborted || requestId !== dealsRequestId) return;
         console.error('Error loading deals:', error);
         failedDealsRequest = { page: requestedPage, sort, search };
         document.getElementById('dealsSort').value = currentDealsSort;
@@ -1950,20 +2053,23 @@ async function loadDeals(page = 1, forceRefresh = false, requestedSort = null, r
             dealsList.innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-triangle"></i><p>Deals could not be loaded.</p></div>';
         }
     } finally {
-        dealsLoading = false;
-        updateDealsPaginationControls();
+        if (requestId === dealsRequestId) {
+            dealsLoading = false;
+            dealsRequestController = null;
+            updateDealsPaginationControls();
+        }
     }
 }
 
 // Fetch real deals from Steam, Epic Games using serverless API (CORS-safe)
-async function fetchDealsWithCredentials(page, sort, search) {
+async function fetchDealsWithCredentials(page, sort, search, signal) {
     const params = new URLSearchParams({
         page: String(page),
         limit: String(dealsPerPage),
         sort
     });
     if (search) params.set('search', search);
-    const response = await fetch(`/api/deals?${params}`);
+    const response = await fetch(`${API_CONFIG.DEALS_URL}?${params}`, { signal });
     const apiResponse = await response.json();
 
     if (!response.ok || !apiResponse.success) {
@@ -1996,26 +2102,6 @@ async function fetchDealsWithCredentials(page, sort, search) {
     });
 
     return { deals, hasMore: apiResponse.hasMore === true };
-}
-
-function removePreviouslySeenDeals(deals, sort, search) {
-    const filterKey = `${sort}:${search}`;
-    let seen = seenDealKeysByFilter.get(filterKey);
-    if (!seen) {
-        seen = new Set();
-        seenDealKeysByFilter.set(filterKey, seen);
-    }
-
-    return deals.filter(deal => {
-        const key = deal.steamAppID
-            ? `steam:${deal.steamAppID}`
-            : deal.steamGameId
-                ? `itad:${deal.steamGameId}`
-                : `title:${deal.title.trim().toLowerCase()}`;
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-    });
 }
 
 function cacheDealsPage(key, pageDeals, hasMore) {
@@ -2059,13 +2145,12 @@ function updateDealsPaginationControls() {
     const nextButton = document.getElementById('dealsNextPage');
     const pageIndicator = document.getElementById('dealsPageIndicator');
     const sortSelect = document.getElementById('dealsSort');
-    const searchInput = document.getElementById('dealsSearchInput');
 
-    if (previousButton) previousButton.disabled = dealsLoading || currentPage <= 1;
-    if (nextButton) nextButton.disabled = dealsLoading || !dealsHasMore;
+    const filterPending = dealsSearchTimeout !== null;
+    if (previousButton) previousButton.disabled = dealsLoading || filterPending || currentPage <= 1;
+    if (nextButton) nextButton.disabled = dealsLoading || filterPending || !dealsHasMore;
     if (pageIndicator) pageIndicator.textContent = `Page ${currentPage}`;
-    if (sortSelect) sortSelect.disabled = dealsLoading;
-    if (searchInput) searchInput.disabled = dealsLoading;
+    if (sortSelect) sortSelect.disabled = dealsLoading || filterPending;
 }
 
 // Fetch Steam store featured games/deals
@@ -2308,6 +2393,8 @@ function filterDeals(platform) {
 
 // Refresh deals
 function refreshDeals() {
+    clearTimeout(dealsSearchTimeout);
+    dealsSearchTimeout = null;
     if (dealsLoading) {
         showNotification("Already loading deals...", "warning");
         return;

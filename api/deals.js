@@ -1,369 +1,241 @@
 const DEALS_PER_PAGE = 20;
+const CHEAPSHARK_BATCH_SIZE = 60;
+const DEAL_CACHE_TTL = 60 * 1000;
+const MAX_CACHED_QUERIES = 24;
+const dealPrefixes = new Map();
+const dealFetchesInFlight = new Map();
 
 export default async function handler(req, res) {
-    res.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=600');
+    res.setHeader('Cache-Control', 's-maxage=60, stale-while-revalidate=300');
 
-    const requestedPage = Number.parseInt(req.query?.page, 10) || 1;
-    const page = Math.max(1, requestedPage);
-    const requestedPageSize = Number.parseInt(req.query?.limit, 10) || DEALS_PER_PAGE;
-    const pageSize = Math.max(1, Math.min(DEALS_PER_PAGE, requestedPageSize));
+    if (req.method !== 'GET') {
+        res.setHeader('Allow', 'GET');
+        return res.status(405).json({ success: false, error: 'Method not allowed' });
+    }
+
+    const rawPage = req.query?.page ?? '1';
+    if (!/^\d+$/.test(String(rawPage)) || Number(rawPage) < 1 || Number(rawPage) > 1000) {
+        return res.status(400).json({ success: false, error: 'Invalid page' });
+    }
+
+    const page = Number(rawPage);
     const sort = ['deal', 'discount', 'price'].includes(req.query?.sort)
         ? req.query.sort
         : 'discount';
-    const search = typeof req.query?.search === 'string'
-        ? req.query.search.trim().toLowerCase().slice(0, 100)
-        : '';
+    if (req.query?.search !== undefined && typeof req.query.search !== 'string') {
+        return res.status(400).json({ success: false, error: 'Invalid search' });
+    }
+    const search = String(req.query?.search || '').trim().toLowerCase().slice(0, 100);
 
     try {
-        let pageResult = await fetchIsThereAnyDealDealsPage(page, sort, pageSize, search);
-        let source = 'itad';
+        let source = process.env.ITAD_API_KEY ? 'itad' : 'cheapshark';
+        let result;
 
-        if (!pageResult) {
-            pageResult = await fetchCheapSharkDealsPage(page, sort, pageSize, search);
-            source = 'cheapshark';
+        if (source === 'itad') {
+            try {
+                result = await getUniqueDealsPage(source, page, sort, search);
+            } catch (error) {
+                console.warn('[API] ITAD failed; using CheapShark:', error.message);
+                source = 'cheapshark';
+            }
         }
 
-        res.status(200).json({
+        if (!result) result = await getUniqueDealsPage(source, page, sort, search);
+
+        return res.status(200).json({
             success: true,
             page,
-            pageSize,
-            count: pageResult.deals.length,
-            hasMore: pageResult.hasMore,
+            pageSize: DEALS_PER_PAGE,
+            count: result.deals.length,
+            hasMore: result.hasMore,
             source,
-            deals: pageResult.deals,
+            deals: result.deals,
             timestamp: new Date().toISOString()
         });
     } catch (error) {
         console.error('[API] Deals page fetch failed:', error.message);
-        res.status(502).json({
+        return res.status(502).json({
             success: false,
             error: 'Unable to load this page. Please try again.',
             page,
-            pageSize,
+            pageSize: DEALS_PER_PAGE,
             deals: []
         });
     }
 }
 
-async function fetchIsThereAnyDealDealsPage(page, sort, pageSize, search) {
-    const apiKey = process.env.ITAD_API_KEY;
-    if (!apiKey) return null;
+async function getUniqueDealsPage(source, page, sort, search) {
+    const cacheKey = `${source}:${sort}:${search}`;
+    const requiredCount = page * DEALS_PER_PAGE;
 
-    try {
-        const firstDealIndex = (page - 1) * pageSize;
-        const requiredDealCount = search ? firstDealIndex + pageSize + 1 : pageSize;
-        const deals = [];
-        const seen = new Set();
-        let offset = search ? 0 : firstDealIndex;
-        let hasMore = true;
-
-        while (deals.length < requiredDealCount && hasMore) {
-            const params = new URLSearchParams({
-                country: 'US',
-                offset: String(offset),
-                limit: String(pageSize),
-                sort: sort === 'price' ? 'price' : '-cut',
-                shops: '61'
-            });
-            const response = await fetch(`https://api.isthereanydeal.com/deals/v2?${params}`, {
-                headers: {
-                    'ITAD-API-Key': apiKey,
-                    Accept: 'application/json'
-                }
-            });
-
-            if (!response.ok) {
-                console.warn(`[API] ITAD returned ${response.status}; using CheapShark fallback`);
-                return null;
-            }
-
-            const data = await response.json();
-            if (!Array.isArray(data.list)) return null;
-
-            const batch = data.list
-                .map(normalizeITADDeal)
-                .filter(deal => deal && deal.discount > 0 && deal.salePrice < deal.normalPrice);
-            appendUniqueDeals(deals, seen, search
-                ? batch.filter(deal => deal.title.toLowerCase().includes(search))
-                : batch);
-
-            hasMore = data.hasMore === true && data.list.length > 0;
-            if (!search) break;
-            offset += data.list.length;
-        }
-
-        return {
-            deals: search ? deals.slice(firstDealIndex, firstDealIndex + pageSize) : deals,
-            hasMore: search
-                ? deals.length > firstDealIndex + pageSize || hasMore
-                : hasMore
-        };
-    } catch (error) {
-        console.warn('[API] ITAD fetch error; using CheapShark fallback:', error.message);
-        return null;
-    }
-}
-
-function normalizeITADDeal(deal) {
-    try {
-        const sourceDeal = deal.deal;
-        if (!sourceDeal) return null;
-
-        const steamAppID = Number.parseInt(deal.appid || deal.app?.id, 10) || null;
-        const steamGameId = deal.id || String(steamAppID || deal.title || '');
-        const salePrice = Number(sourceDeal.price?.amount) || 0;
-        const normalPrice = Number(sourceDeal.regular?.amount) || 0;
-
-        return {
-            title: deal.title || 'Unknown Game',
-            steamAppID,
-            steamGameId,
-            salePrice,
-            normalPrice,
-            discount: Number(sourceDeal.cut) || 0,
-            expiry: sourceDeal.expiry ? Math.floor(Date.parse(sourceDeal.expiry) / 1000) : null,
-            store: sourceDeal.shop?.name || 'Steam',
-            type: salePrice === 0 ? 'giveaway' : 'sale',
-            source: 'itad',
-            url: sourceDeal.url || getSteamUrl({ steamAppID, title: deal.title })
-        };
-    } catch (error) {
-        console.warn('[API] Failed to normalize ITAD deal:', error.message);
-        return null;
-    }
-}
-
-function deduplicatePagedDeals(deals) {
-    const seen = new Set();
-    return deals.filter(deal => {
-        const key = deal.steamAppID
-            ? `steam:${deal.steamAppID}`
-            : `itad:${deal.steamGameId || deal.title.trim().toLowerCase()}`;
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-    });
-}
-
-function appendUniqueDeals(deals, seen, candidates) {
-    for (const deal of candidates) {
-        const key = deal.steamAppID
-            ? `steam:${deal.steamAppID}`
-            : `itad:${deal.steamGameId || deal.title.trim().toLowerCase()}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        deals.push(deal);
-    }
-}
-
-/**
- * Helper function to generate Steam store URLs
- * @param {Object} deal - Deal object with steamAppID and title
- * @returns {string} Steam store URL
- */
-function getSteamUrl(deal) {
-    // If valid Steam app ID exists, use direct app link
-    if (deal.steamAppID && Number(deal.steamAppID) > 0) {
-        return `https://store.steampowered.com/app/${deal.steamAppID}`;
-    }
-    
-    // Fallback to Steam search using game title
-    if (deal.title) {
-        return `https://store.steampowered.com/search/?term=${encodeURIComponent(deal.title)}`;
-    }
-    
-    // Last resort: Steam home page
-    return 'https://store.steampowered.com';
-}
-
-/**
- * Fetch deals from CheapShark API (fallback)
- * @returns {Promise<Array>} Normalized deal objects
- */
-async function fetchCheapSharkDealsPage(page, sort, pageSize, search) {
-    try {
-        const sortBy = sort === 'price' ? 'Price' : sort === 'discount' ? 'Savings' : 'Deal Rating';
-        if (!search) {
-            const params = new URLSearchParams({
-                storeID: '1',
-                pageNumber: String(page - 1),
-                pageSize: String(pageSize),
-                sortBy
-            });
-            const response = await fetch(`https://www.cheapshark.com/api/1.0/deals?${params}`, {
-                headers: { 'User-Agent': 'SteamHunt/1.0' }
-            });
-
-            if (!response.ok) {
-                const errorBody = await response.text();
-                if (response.status === 400 && /Too Many Results/i.test(errorBody)) {
-                    return { deals: [], hasMore: false };
-                }
-                throw new Error(`CheapShark returned ${response.status}`);
-            }
-
-            const rawDeals = await response.json();
-            const deals = deduplicateDeals((Array.isArray(rawDeals) ? rawDeals : [])
-                .map(normalizeCheapSharkDeal)
-                .filter(Boolean));
-
+    while (true) {
+        const state = getDealPrefix(cacheKey);
+        if (state.deals.length >= requiredCount || !state.hasMore) {
+            const start = (page - 1) * DEALS_PER_PAGE;
             return {
-                deals: filterValidDeals(deals),
-                hasMore: Array.isArray(rawDeals) && rawDeals.length === pageSize
+                deals: state.deals.slice(start, start + DEALS_PER_PAGE),
+                hasMore: state.deals.length > start + DEALS_PER_PAGE || state.hasMore
             };
         }
 
-        const firstDealIndex = (page - 1) * pageSize;
-        const requiredDealCount = firstDealIndex + pageSize + 1;
-        const deals = [];
-        const seen = new Set();
-        let upstreamPage = 0;
-        let hasMore = true;
-
-        while (deals.length < requiredDealCount && hasMore) {
-            const params = new URLSearchParams({
-                storeID: '1',
-                pageNumber: String(upstreamPage),
-                pageSize: String(pageSize),
-                sortBy
-            });
-            const response = await fetch(`https://www.cheapshark.com/api/1.0/deals?${params}`, {
-                headers: { 'User-Agent': 'SteamHunt/1.0' }
-            });
-
-            if (!response.ok) {
-                const errorBody = await response.text();
-                if (response.status === 400 && /Too Many Results/i.test(errorBody)) {
-                    hasMore = false;
-                    break;
-                }
-                throw new Error(`CheapShark returned ${response.status}`);
-            }
-
-            const rawDeals = await response.json();
-            const batch = filterValidDeals(deduplicateDeals((Array.isArray(rawDeals) ? rawDeals : [])
-                .map(normalizeCheapSharkDeal)
-                .filter(Boolean)));
-            appendUniqueDeals(deals, seen, batch.filter(deal => deal.title.toLowerCase().includes(search)));
-
-            hasMore = Array.isArray(rawDeals) && rawDeals.length === pageSize;
-            upstreamPage++;
+        let pending = dealFetchesInFlight.get(cacheKey);
+        if (!pending) {
+            pending = extendDealPrefix(state, source, sort, search, requiredCount)
+                .catch(error => {
+                    dealPrefixes.delete(cacheKey);
+                    throw error;
+                })
+                .finally(() => dealFetchesInFlight.delete(cacheKey));
+            dealFetchesInFlight.set(cacheKey, pending);
         }
 
-        return {
-            deals: deals.slice(firstDealIndex, firstDealIndex + pageSize),
-            hasMore: deals.length > firstDealIndex + pageSize || hasMore
-        };
-    } catch (error) {
-        console.error('[API] CheapShark fallback failed:', error.message);
-        throw error;
+        await pending;
     }
 }
 
-/**
- * Normalize CheapShark deal to standard shape
- * @param {Object} deal - Raw CheapShark deal object
- * @returns {Object|null} Normalized deal or null if invalid
- */
-function normalizeCheapSharkDeal(deal) {
-    try {
-        // Note: CheapShark is now filtered to Steam only via the API request (storeID=1)
-        const steamAppID = deal.steamAppID ? parseInt(deal.steamAppID) : null;
-        const salePrice = parseFloat(deal.salePrice) || 0;
-        const normalPrice = parseFloat(deal.normalPrice) || 0;
-        const discount = Math.round(parseFloat(deal.savings)) || 0;
+function getDealPrefix(key) {
+    let state = dealPrefixes.get(key);
+    if (!state || Date.now() - state.updatedAt > DEAL_CACHE_TTL) {
+        state = { deals: [], seen: new Set(), offset: 0, hasMore: true, updatedAt: Date.now() };
+        dealPrefixes.delete(key);
+        dealPrefixes.set(key, state);
+    } else {
+        dealPrefixes.delete(key);
+        dealPrefixes.set(key, state);
+    }
 
-        // CheapShark doesn't provide expiry, so estimate based on discount % and freshness
-        // Logic: Higher discounts are less common and may expire sooner
-        //        but we default to 7-14 days depending on discount
-        let expiryDays = 7; // Default 7 days
-        
-        if (discount >= 80) {
-            expiryDays = 5; // Steep discounts likely to expire faster
-        } else if (discount >= 60) {
-            expiryDays = 7;
-        } else if (discount >= 30) {
-            expiryDays = 10;
-        } else {
-            expiryDays = 14; // Small discounts likely last longer
+    while (dealPrefixes.size > MAX_CACHED_QUERIES) {
+        dealPrefixes.delete(dealPrefixes.keys().next().value);
+    }
+    return state;
+}
+
+async function extendDealPrefix(state, source, sort, search, requiredCount) {
+    while (state.deals.length < requiredCount && state.hasMore) {
+        const batch = source === 'itad'
+            ? await fetchITADBatch(state.offset, sort)
+            : await fetchCheapSharkBatch(state.offset, sort);
+        const rawDeals = batch.deals;
+
+        for (const rawDeal of rawDeals) {
+            const deal = source === 'itad' ? normalizeITADDeal(rawDeal) : normalizeCheapSharkDeal(rawDeal);
+            if (!isValidDeal(deal)) continue;
+            if (search && !deal.title.toLowerCase().includes(search)) continue;
+
+            const key = `steam:${deal.steamAppID}`;
+            if (state.seen.has(key)) continue;
+            state.seen.add(key);
+            state.deals.push(deal);
         }
-        
-        // Convert to Unix seconds
-        const expirySeconds = Math.floor(Date.now() / 1000) + (expiryDays * 24 * 60 * 60);
-        const expiry = deal.dealExpires ? parseInt(deal.dealExpires) : expirySeconds;
 
-        // Generate store URL using helper
-        const storeUrl = getSteamUrl({ steamAppID, title: deal.title });
-
-        return {
-            title: deal.title || 'Unknown Game',
-            steamAppID,
-            salePrice,
-            normalPrice,
-            discount,
-            expiry, // Keep as Unix seconds
-            store: 'Steam',
-            type: salePrice === 0 ? 'giveaway' : 'sale',
-            source: 'cheapshark',
-            url: storeUrl
-        };
-    } catch (error) {
-        console.warn('[API] Failed to normalize CheapShark deal:', error.message);
-        return null;
+        state.offset = Number.isSafeInteger(batch.nextOffset) && batch.nextOffset > state.offset
+            ? batch.nextOffset
+            : state.offset + rawDeals.length;
+        state.hasMore = batch.hasMore && rawDeals.length > 0;
+        state.updatedAt = Date.now();
     }
 }
 
-/**
- * Remove duplicate deals, keeping the best discount per steamAppID
- * @param {Array} deals - Array of normalized deals
- * @returns {Array} Deduplicated deals
- */
-function deduplicateDeals(deals) {
-    const map = new Map();
-    let skipped = 0;
-
-    for (const deal of deals) {
-        if (!deal.steamAppID) {
-            console.warn(`[API] Skipping deal without steamAppID: "${deal.title}"`);
-            skipped++;
-            continue; // Skip deals without Steam ID
-        }
-
-        const key = deal.steamAppID;
-        const existing = map.get(key);
-
-        if (!existing || deal.discount > existing.discount) {
-            map.set(key, deal);
-        }
-    }
-
-    console.log(`[API] Deduplicated: ${deals.length} deals (${skipped} skipped) → ${map.size} unique deals`);
-    return Array.from(map.values());
-}
-
-/**
- * Filter invalid deals
- * Removes deals where:
- * - salePrice >= normalPrice (no real discount)
- * - discount <= 0 (no discount)
- * - missing required fields
- * @param {Array} deals - Array of normalized deals
- * @returns {Array} Filtered deals
- */
-function filterValidDeals(deals) {
-    return deals.filter(d => {
-        // Must have a discount
-        if (d.discount <= 0) return false;
-
-        // Sale price must be less than normal price
-        if (d.salePrice >= d.normalPrice) return false;
-
-        // Must have title and Steam ID
-        if (!d.title || !d.steamAppID) return false;
-
-        // Expiry must be valid if present (positive Unix timestamp)
-        if (d.expiry && d.expiry <= 0) return false;
-
-        return true;
+async function fetchITADBatch(offset, sort) {
+    const params = new URLSearchParams({
+        country: 'US',
+        offset: String(offset),
+        limit: String(DEALS_PER_PAGE),
+        sort: sort === 'price' ? 'price' : '-cut',
+        shops: '61'
     });
+    const response = await fetch(`https://api.isthereanydeal.com/deals/v2?${params}`, {
+        headers: { 'ITAD-API-Key': process.env.ITAD_API_KEY, Accept: 'application/json' }
+    });
+
+    if (!response.ok) throw new Error(`ITAD returned ${response.status}`);
+    const data = await response.json();
+    if (!Array.isArray(data.list)) throw new Error('ITAD returned an invalid deal list');
+    const nextOffset = Number.isSafeInteger(data.nextOffset) ? data.nextOffset : null;
+    return {
+        deals: data.list,
+        nextOffset,
+        hasMore: typeof data.hasMore === 'boolean'
+            ? data.hasMore
+            : nextOffset !== null && nextOffset > offset
+    };
+}
+
+async function fetchCheapSharkBatch(offset, sort) {
+    const params = new URLSearchParams({
+        storeID: '1',
+        pageNumber: String(Math.floor(offset / CHEAPSHARK_BATCH_SIZE)),
+        pageSize: String(CHEAPSHARK_BATCH_SIZE),
+        sortBy: sort === 'price' ? 'Price' : sort === 'discount' ? 'Savings' : 'Deal Rating'
+    });
+    const response = await fetch(`https://www.cheapshark.com/api/1.0/deals?${params}`, {
+        headers: { 'User-Agent': 'SteamHunt/1.0' }
+    });
+
+    if (!response.ok) {
+        const message = await response.text();
+        if (response.status === 400 && /Too Many Results/i.test(message)) {
+            return { deals: [], hasMore: false };
+        }
+        throw new Error(`CheapShark returned ${response.status}`);
+    }
+
+    const deals = await response.json();
+    const list = Array.isArray(deals) ? deals : [];
+    return { deals: list, hasMore: list.length === CHEAPSHARK_BATCH_SIZE };
+}
+
+function normalizeITADDeal(deal) {
+    const sourceDeal = deal?.deal;
+    if (!sourceDeal) return null;
+
+    const steamAppID = Number.parseInt(deal.appid || deal.app?.id, 10) || null;
+    const salePrice = Number(sourceDeal.price?.amount) || 0;
+    const normalPrice = Number(sourceDeal.regular?.amount) || 0;
+    const expiryDate = sourceDeal.expiry ? Date.parse(sourceDeal.expiry) : NaN;
+
+    return {
+        title: deal.title || 'Unknown Game',
+        steamAppID,
+        steamGameId: deal.id || String(steamAppID || deal.title || ''),
+        salePrice,
+        normalPrice,
+        discount: Number(sourceDeal.cut) || 0,
+        expiry: Number.isFinite(expiryDate) ? Math.floor(expiryDate / 1000) : null,
+        store: sourceDeal.shop?.name || 'Steam',
+        type: salePrice === 0 ? 'giveaway' : 'sale',
+        source: 'itad',
+        url: sourceDeal.url || getSteamUrl(steamAppID, deal.title)
+    };
+}
+
+function normalizeCheapSharkDeal(deal) {
+    const steamAppID = Number.parseInt(deal.steamAppID, 10) || null;
+    const salePrice = Number.parseFloat(deal.salePrice) || 0;
+    const normalPrice = Number.parseFloat(deal.normalPrice) || 0;
+
+    return {
+        title: deal.title || 'Unknown Game',
+        steamAppID,
+        steamGameId: String(steamAppID || deal.title || ''),
+        salePrice,
+        normalPrice,
+        discount: Math.round(Number.parseFloat(deal.savings)) || 0,
+        expiry: Number.parseInt(deal.dealExpires, 10) || null,
+        store: 'Steam',
+        type: salePrice === 0 ? 'giveaway' : 'sale',
+        source: 'cheapshark',
+        url: getSteamUrl(steamAppID, deal.title)
+    };
+}
+
+function isValidDeal(deal) {
+    return Boolean(deal && deal.title && deal.steamAppID && deal.discount > 0 &&
+        deal.salePrice < deal.normalPrice && (!deal.expiry || deal.expiry > 0));
+}
+
+function getSteamUrl(steamAppID, title) {
+    if (steamAppID) return `https://store.steampowered.com/app/${steamAppID}`;
+    if (title) return `https://store.steampowered.com/search/?term=${encodeURIComponent(title)}`;
+    return 'https://store.steampowered.com';
 }
