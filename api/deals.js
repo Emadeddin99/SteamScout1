@@ -128,7 +128,9 @@ async function extendDealPrefix(state, source, sort, search, requiredCount) {
             state.deals.push(deal);
         }
 
-        state.offset += rawDeals.length;
+        state.offset = Number.isSafeInteger(batch.nextOffset) && batch.nextOffset > state.offset
+            ? batch.nextOffset
+            : state.offset + rawDeals.length;
         state.hasMore = batch.hasMore && rawDeals.length > 0;
         state.updatedAt = Date.now();
     }
@@ -149,7 +151,14 @@ async function fetchITADBatch(offset, sort) {
     if (!response.ok) throw new Error(`ITAD returned ${response.status}`);
     const data = await response.json();
     if (!Array.isArray(data.list)) throw new Error('ITAD returned an invalid deal list');
-    return { deals: data.list, hasMore: data.hasMore === true };
+    const nextOffset = Number.isSafeInteger(data.nextOffset) ? data.nextOffset : null;
+    return {
+        deals: data.list,
+        nextOffset,
+        hasMore: typeof data.hasMore === 'boolean'
+            ? data.hasMore
+            : nextOffset !== null && nextOffset > offset
+    };
 }
 
 async function fetchCheapSharkBatch(offset, sort) {
