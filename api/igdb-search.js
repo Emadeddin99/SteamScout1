@@ -146,7 +146,7 @@ function getFallbackSearch(search) {
     if (!terms.length) return null;
     return {
         term: terms.sort((first, second) => second.length - first.length)[0].slice(0, 4),
-        matchAnywhere: false
+        matchAnywhere: true
     };
 }
 
