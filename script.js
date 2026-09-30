@@ -2048,10 +2048,7 @@ async function loadDeals(page = 1, forceRefresh = false, requestedSort = null, r
         console.error('Error loading deals:', error);
         failedDealsRequest = { page: requestedPage, sort, search };
         document.getElementById('dealsSort').value = currentDealsSort;
-        setDealsPageStatus('Unable to load this page. Please try again.', true);
-        if (currentDeals.length === 0) {
-            dealsList.innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-triangle"></i><p>Deals could not be loaded.</p></div>';
-        }
+        setDealsPageStatus('');
     } finally {
         if (requestId === dealsRequestId) {
             dealsLoading = false;
@@ -2121,18 +2118,9 @@ function setDealsPageStatus(message, isError = false) {
     const status = document.getElementById('dealsPageStatus');
     if (!status) return;
 
-    status.hidden = !message;
-    status.classList.toggle('error', isError);
-    status.textContent = message;
-
-    if (isError) {
-        const retryButton = document.createElement('button');
-        retryButton.className = 'deals-retry-btn';
-        retryButton.type = 'button';
-        retryButton.textContent = 'Retry';
-        retryButton.addEventListener('click', retryDealsPage, { once: true });
-        status.append(' ', retryButton);
-    }
+    status.hidden = true;
+    status.classList.remove('error');
+    status.textContent = '';
 }
 
 function retryDealsPage() {
