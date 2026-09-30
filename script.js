@@ -1344,12 +1344,16 @@ function handleGameSearch(query) {
         } catch (error) {
             if (controller.signal.aborted || requestId !== gameSearchRequestId) return;
             console.warn('IGDB game search failed:', error.message);
-            displaySearchSuggestionsError();
+            displaySearchSuggestionsError(error.message);
         }
     }, 300);
 }
 
 async function fetchGameSuggestions(query, signal) {
+    if (location.protocol === 'file:') {
+        throw new Error('Game suggestions require a Vercel preview/server. Open the app through the preview deployment or run vercel dev to enable suggestions.');
+    }
+
     const cacheKey = query.trim().toLowerCase();
     const cached = gameSearchCache.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < gameSearchCacheTtl) {
@@ -1384,9 +1388,10 @@ async function fetchGameSuggestions(query, signal) {
     return results;
 }
 
-function displaySearchSuggestionsError() {
+function displaySearchSuggestionsError(message = '') {
     const suggestionsDiv = document.getElementById('searchSuggestions');
     const gameSearchInput = document.getElementById('gameSearchInput');
+    const needsServer = /Vercel|preview|server/.test(message || '');
 
     currentGameSuggestions = [];
     activeGameSuggestionIndex = -1;
@@ -1394,7 +1399,9 @@ function displaySearchSuggestionsError() {
     suggestionsDiv.innerHTML = `
         <div class="search-suggestion-item" role="status" style="text-align: center; color: var(--text-tertiary);">
             <i class="fas fa-exclamation-circle"></i>
-            <p>Game search is temporarily unavailable. Please try again.</p>
+            <p>${needsServer
+                ? 'Game suggestions need the app running through Vercel preview or vercel dev.'
+                : 'Game search is temporarily unavailable. Please try again.'}</p>
         </div>
     `;
 }
