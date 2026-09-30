@@ -54,6 +54,9 @@ export default async function handler(req, res) {
         const rankedGames = (Array.isArray(games) ? games : [])
             .map((game, index) => ({ game, index, score: scoreGameMatch(search, game.name) }))
             .sort((first, second) => second.score - first.score || first.index - second.index)
+            .filter(({ game }, index, ranked) => ranked.findIndex(candidate =>
+                normalizeTitle(candidate.game.name) === normalizeTitle(game.name)
+            ) === index)
             .slice(0, 8)
             .map(({ game }) => game);
 
